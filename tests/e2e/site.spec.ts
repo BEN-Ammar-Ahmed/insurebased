@@ -90,11 +90,15 @@ test("results, filters, pagination, map and profile actions", async ({ page }) =
   const resultsAxe = await new AxeBuilder({ page }).exclude(".leaflet-container").withTags(["wcag2a", "wcag2aa"]).analyze();
   expect(resultsAxe.violations).toEqual([]);
   await page.screenshot({ path: "artifacts/results-" + (page.viewportSize()?.width ?? 1280) + ".png", fullPage: true });
-  await page.getByRole("link", { name: "View profile", exact: true }).first().click();
-  await expect(page.getByRole("heading", { name: doctor.name })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Practice locations on file" })).toBeVisible();
-  await expect(page.getByText("NPI: " + doctor.npi)).toBeVisible();
-  await expect(page.locator(".coverage-card").getByText("Unable to verify Original Medicare assignment")).toBeVisible();
+  // Profiles are server-rendered from the live registry, so the fixture NPI
+  // can't be opened here; check the link carries the insurance choice.
+  await expect(page.getByRole("link", { name: "View profile", exact: true }).first()).toHaveAttribute("href", "/doctor/" + doctor.npi + "?category=medicare");
+});
+test("directory pages reject unknown cities and specialties", async ({ request }) => {
+  expect((await request.get("/find/zz/nowhere")).status()).toBe(404);
+  expect((await request.get("/find/il/chicago/not-a-specialty")).status()).toBe(404);
+  expect((await request.get("/doctor/123")).status()).toBe(404);
+  expect(await (await request.get("/robots.txt")).text()).not.toContain("Disallow: /doctor/");
 });
 test("errors leave the shell visible and retries recover", async ({ page }) => {
   let fail = true;

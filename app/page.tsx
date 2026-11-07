@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 export const metadata: Metadata = { title: { absolute: "InsureBased — Find Doctors by Insurance and Location" }, ...(process.env.SITE_URL ? { alternates: { canonical: "/" } } : {}) };
+import Link from "next/link";
 import HomeSearch from "@/components/HomeSearch";
+import { CITIES, cityPath } from "@/lib/cities";
 import { HOME_COPY } from "@/lib/homeContent";
 import {
   CheckIcon,
@@ -26,7 +28,7 @@ export default function Home() {
   return (
     <>
       <main className="screen home-screen">
-        {process.env.SITE_URL && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({ "@context": "https://schema.org", "@type": "WebSite", name: "InsureBased", url: process.env.SITE_URL, description: "Find nearby doctors and review available insurance coverage information using trustworthy public healthcare data.", publisher: { "@type": "Organization", name: "InsureBased", url: process.env.SITE_URL, logo: new URL("/brand/insurebased-logo.png", process.env.SITE_URL).href } }).replace(/</g, "\u003c") }} />}
+        {process.env.SITE_URL && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({ "@context": "https://schema.org", "@type": "WebSite", name: "InsureBased", url: process.env.SITE_URL, description: "Find nearby doctors and review available insurance coverage information using trustworthy public healthcare data.", publisher: { "@type": "Organization", name: "InsureBased", url: process.env.SITE_URL, logo: new URL("/brand/insurebased-logo.png", process.env.SITE_URL).href } }).replace(/</g, "\\u003c") }} />}
 
         <section className="home-hero" aria-labelledby="home-title">
           <div className="home-hero-copy">
@@ -96,6 +98,16 @@ export default function Home() {
               );
             })}
           </ol>
+        </section>
+
+        <section className="link-section home-cities" aria-labelledby="home-cities-title">
+          <h2 id="home-cities-title" className="link-section-title">Browse doctors by city</h2>
+          <ul className="link-grid">
+            {CITIES.slice(0, 11).map(city => (
+              <li key={city.slug}><Link href={cityPath(city)}>{city.name}, {city.state}</Link></li>
+            ))}
+            <li><Link href="/find">All 50 cities</Link></li>
+          </ul>
         </section>
 
         <section className="home-search-footer" aria-label="Detailed insurance search">

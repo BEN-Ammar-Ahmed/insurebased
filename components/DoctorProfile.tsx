@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import type { Doctor } from "@/lib/npi";
 import { COVERAGE_LABELS, type CoverageDisplay } from "@/lib/coverage";
@@ -26,6 +26,12 @@ type Props = {
   issuerName: string;
   planYear: string;
   insurerName: string;
+  // Server-rendered record, so the page has real content without JavaScript.
+  initialDoctor?: Doctor | null;
+  // Server-streamed Original Medicare status (replaces the client fetch).
+  medicareSlot?: ReactNode;
+  // Link to the matching city directory page, when one exists.
+  moreLink?: { href: string; label: string } | null;
 };
 
 export default function DoctorProfile({
@@ -36,12 +42,15 @@ export default function DoctorProfile({
   issuerName,
   planYear,
   insurerName,
+  initialDoctor = null,
+  medicareSlot,
+  moreLink,
 }: Props) {
-  const [doctor, setDoctor] = useState<Doctor | null>(null);
+  const [doctor, setDoctor] = useState<Doctor | null>(initialDoctor);
   const [coverage, setCoverage] = useState<CoverageDisplay | null>(null);
   const [coverageLoading, setCoverageLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialDoctor);
 
   const query = useMemo(() => {
     const q = new URLSearchParams();
@@ -71,11 +80,11 @@ export default function DoctorProfile({
       .finally(() => setLoading(false));
   }, [npi, query]);
 
-  useEffect(load, [load]);
+  useEffect(() => { if (!initialDoctor) load(); }, [load, initialDoctor]);
 
   // Coverage loads on its own so the profile never waits on a slow source.
   useEffect(() => {
-    if (!doctor || coverage || !["medicare", "marketplace", "other"].includes(category)) return;
+    if (!doctor || coverage || medicareSlot || !["medicare", "marketplace", "other"].includes(category)) return;
     let cancelled = false;
     setCoverageLoading(true);
     const q = new URLSearchParams(query);
@@ -86,7 +95,7 @@ export default function DoctorProfile({
       .catch(() => { if (!cancelled) setCoverage({ status: "unavailable", label: COVERAGE_LABELS.unavailable, source: null, checkedAt: new Date().toISOString() }); })
       .finally(() => { if (!cancelled) setCoverageLoading(false); });
     return () => { cancelled = true; };
-  }, [doctor, coverage, category, query]);
+  }, [doctor, coverage, category, query, medicareSlot]);
 
   const practiceLocations = doctor ? uniquePracticeLocations(doctor) : [];
   const otherLocations = practiceLocations.slice(1);
@@ -104,12 +113,17 @@ export default function DoctorProfile({
         <button
           type="button"
           aria-label="Back"
-          onClick={() => history.back()}
+          onClick={() => {
+            // Visitors from Google have no results page to return to.
+            const fromThisSite = document.referrer && new URL(document.referrer).origin === location.origin;
+            if (fromThisSite && history.length > 1) history.back();
+            else location.assign(moreLink?.href ?? "/search");
+          }}
           className="icon-button"
         >
           <ChevronLeftIcon size={18} />
         </button>
-        <span className="app-header-title">Back to results</span>
+        <span className="app-header-title">Back</span>
       </div>
 
       {error && (
@@ -141,7 +155,13 @@ export default function DoctorProfile({
           </section>
 
           <div className="profile-main">
-            {category !== "none" && (
+            {medicareSlot && (
+              <section className="card coverage-card" aria-live="polite">
+                <h2 className="profile-card-title">Original Medicare</h2>
+                {medicareSlot}
+              </section>
+            )}
+            {!medicareSlot && category !== "none" && (
               <section className="card coverage-card" aria-live="polite">
                 <h2 className="profile-card-title">Insurance check</h2>
                 {coverageLoading && <span className="badge-neutral badge-pending"><span className="pending-dot" aria-hidden="true" />Checking official records…</span>}
@@ -214,6 +234,7 @@ export default function DoctorProfile({
               <div className="profile-record-links">
                 <a href={"https://npiregistry.cms.hhs.gov/provider-view/" + doctor.npi} target="_blank" rel="noreferrer">View official record</a>
                 <Link href={"/report?npi=" + doctor.npi}>Report incorrect info</Link>
+                {moreLink && <Link href={moreLink.href}>{moreLink.label}</Link>}
               </div>
             </section>
           </div>

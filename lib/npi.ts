@@ -1,3 +1,5 @@
+import { specialtyByLabel, type Specialty } from "./specialties";
+
 export type Doctor = {
   npi: string;
   name: string;
@@ -215,9 +217,10 @@ export async function searchNpi(params: {
     return searchByName({ lastName: params.lastName, firstName: params.firstName, state: params.state, skip: params.skip ?? 0 });
   }
 
+  const specialty = params.specialty ? specialtyByLabel(params.specialty) : undefined;
   const query: Record<string, string> = {};
   if (params.zip) query.postal_code = params.zip;
-  if (params.specialty) query.taxonomy_description = params.specialty;
+  if (params.specialty) query.taxonomy_description = specialty?.query ?? params.specialty;
   if (params.firstName) query.first_name = params.firstName;
   if (params.lastName) query.last_name = params.lastName;
   if (params.state) query.state = params.state;
@@ -236,8 +239,42 @@ export async function searchNpi(params: {
     )
     .map(normalizeNpiResult)
     .filter((d): d is Doctor => d !== null)
-    .filter((d) => !params.zip || d.zip === params.zip);
+    .filter((d) => !params.zip || d.zip === params.zip)
+    .filter((d) => !specialty || specialty.primary.test(d.specialty));
   return { doctors, hasMore: results.length === NPI_PAGE_SIZE };
+}
+
+type CityResult = { doctors: Doctor[]; complete: boolean };
+const cityCache = new Map<string, CityResult & { expires: number }>();
+const CITY_PAGES = [0, 200, 400];
+
+// Providers whose *practice* address is in a city and whose primary
+// specialty matches. The registry's city filter also matches mailing
+// addresses and secondary specialties, so both are re-checked here.
+// `complete` is false when the registry had more rows than we fetched.
+export async function searchCitySpecialty(city: { registryCity: string; state: string }, specialty: Specialty): Promise<CityResult> {
+  const key = [city.registryCity, city.state, specialty.slug].join("|");
+  const hit = cityCache.get(key);
+  if (hit && hit.expires > Date.now()) return { doctors: hit.doctors, complete: hit.complete };
+  const base = { city: city.registryCity, state: city.state, taxonomy_description: specialty.query, limit: "200" };
+  const first = await callNpi({ ...base, skip: "0" });
+  const rest = first.length === 200
+    ? await Promise.all(CITY_PAGES.slice(1).map(skip => callNpi({ ...base, skip: String(skip) }).catch(() => [])))
+    : [];
+  const byNpi = new Map<string, Doctor>();
+  for (const raw of [first, ...rest].flat()) {
+    const doctor = normalizeNpiResult(raw);
+    if (!doctor || doctor.addressKind !== "practice") continue;
+    if (doctor.city.toUpperCase() !== city.registryCity || doctor.state !== city.state) continue;
+    if (!specialty.primary.test(doctor.specialty)) continue;
+    byNpi.set(doctor.npi, doctor);
+  }
+  const doctors = [...byNpi.values()];
+  const lastPage = rest.length ? rest[rest.length - 1] : first;
+  const complete = lastPage.length < 200;
+  if (cityCache.size >= 500) cityCache.delete(cityCache.keys().next().value!);
+  cityCache.set(key, { doctors, complete, expires: Date.now() + 6 * 3600000 });
+  return { doctors, complete };
 }
 
 export async function fetchNpiByNumber(npi: string): Promise<Doctor | null> {

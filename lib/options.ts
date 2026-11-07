@@ -1,17 +1,6 @@
-export const SPECIALTIES = [
-  "Cardiology",
-  "Dermatology",
-  "Family Medicine",
-  "Internal Medicine",
-  "Pediatrics",
-  "Psychiatry",
-  "Obstetrics & Gynecology",
-  "Orthopaedic Surgery",
-  "Ophthalmology",
-  "Optometrist",
-  "Dentist",
-  "Physical Therapist",
-];
+import { SPECIALTY_LIST } from "./specialties";
+
+export const SPECIALTIES = SPECIALTY_LIST.map(s => s.label);
 
 export const US_STATES = [
   "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",

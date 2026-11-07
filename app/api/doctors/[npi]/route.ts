@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { storedProvider, storedCoordinates } from "@/lib/providerStore";
-import { fetchNpiByNumber } from "@/lib/npi";
-import { geocodeProviderLocations } from "@/lib/providerLocations";
+import { getProvider } from "@/lib/provider";
 import { isValidNpi } from "@/lib/validation";
 import { rateLimitResponse } from "@/lib/rateLimit";
 
@@ -20,13 +18,8 @@ export async function GET(
   }
 
   try {
-    const stored = await storedProvider(npi);
-    let doctor = stored === undefined ? await fetchNpiByNumber(npi) : stored;
-    if (!doctor) {
-      return NextResponse.json({ doctor: null }, { status: 404 });
-    }
-    if (process.env.DATABASE_URL) [doctor] = await storedCoordinates([doctor], null);
-    [doctor] = await geocodeProviderLocations([doctor], null);
+    const doctor = await getProvider(npi);
+    if (!doctor) return NextResponse.json({ doctor: null }, { status: 404 });
     return NextResponse.json({ doctor });
   } catch {
     return NextResponse.json({ error: "npi_unavailable" }, { status: 502 });

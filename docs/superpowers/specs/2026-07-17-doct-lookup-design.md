@@ -32,6 +32,7 @@ A mobile-first website where a person picks their health insurance, enters a ZIP
 2. **Results** — List/Map toggle. List: doctor cards (avatar initials, name, specialty, distance, address, green "Accepts X" badge); nearby doctors who don't accept the plan appear dimmed below matches. Map: Leaflet map with pins for matches; tapping a pin shows a mini card. Search summary pill at top returns to search.
 3. **Doctor profile** — name, specialty, NPI, address, tap-to-call phone button, full accepted-insurance chips (user's plan highlighted green, not-accepted shown in red section), small map of the office location.
 4. Reverse lookup reuses Results and Profile screens.
+5. **City directory (`/find`, `/find/[state]/[city]`, `/find/[state]/[city]/[specialty]`)** — added 2026-11-06 at owner's request so the site can be found through Google. Server-rendered pages for the 50 largest US cities × 12 specialties: breadcrumbs, heading, honest provider count, up to 50 provider cards with Original Medicare status streamed in, a "check your own insurance" CTA, and links to other specialties and cities. Provider profiles (`/doctor/[npi]`) are now server-rendered and indexable too, with Original Medicare status shown even when no insurance was chosen.
 
 ## Interactivity requirements
 
