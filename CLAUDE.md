@@ -20,24 +20,26 @@ npm run build      # production build — stop the dev server first on Windows (
 
 The browser never calls external APIs or holds any API key. Client components fetch our own API routes, which orchestrate everything server-side:
 
-- `app/api/doctors/search/route.ts` — zip mode (NPI registry by `postal_code` + geocode ZIP via zippopotam.us in parallel), name mode (wildcard `last_name*`/`first_name*`), or map-bounds mode (`lat`/`lng` reverse-geocoded to a ZIP via Nominatim). Geocodes provider office addresses before returning pins/distances, computes coverage per doctor, sorts covered matches first. Supports `skip` for pagination (`hasMore` in the response).
-- `app/api/doctors/[npi]/route.ts` — single provider by NPI number, same coverage computation, and a profile map only when the office address geocodes.
+- `app/api/doctors/search/route.ts` — zip mode (NPI registry by `postal_code` + geocode ZIP via zippopotam.us in parallel), name mode (wildcard `last_name*`/`first_name*`), or map-bounds mode (`lat`/`lng` reverse-geocoded to a ZIP via Nominatim). Geocodes every provider office address in one Census batch request, sorts closest first. Does **not** compute coverage. Supports `skip` for pagination (`hasMore` in the response).
+- `app/api/doctors/[npi]/route.ts` — single provider by NPI number plus its office pin. Does **not** compute coverage.
+- `app/api/doctors/coverage/route.ts` — `?npis=a,b,c&category=...` → `computeCoverage`. The results list and profile both call it *after* rendering, because CMS Medicare data takes ~5–10s per request (it scans the whole dataset). Never put coverage back on the critical path of the list/profile.
 - `app/api/insurance/marketplace/plans/route.ts` — real ACA plans for a ZIP + year, used by the search form's plan picker.
 - `lib/npi.ts` — the only place that knows the NPI registry's raw shape. Normalizes its quirks: ALL-CAPS names, 9-digit ZIPs, LOCATION vs MAILING addresses, `--` credentials. Exports the `Doctor` type (no insurance field — coverage is computed per-search, not intrinsic to a doctor).
-- `lib/medicare.ts` — real: batched query against CMS's public "Doctors and Clinicians" dataset (id `mj5m-pzi6`), field `ind_assgn`. `Y` → accepts Medicare-approved amount, `M` → maybe (verify before visit), anything else/missing → unable to verify. Always carries the Medicare-Advantage disclaimer. No API key needed.
+- `lib/medicare.ts` — real: one batched query (up to 50 NPIs, `count=false&schema=false`, 15s timeout, 24h cache) against CMS's public "Doctors and Clinicians" dataset (id `mj5m-pzi6`), field `ind_assgn`. CMS returns 403 without a User-Agent. `Y` → accepts Medicare-approved amount, `M` → maybe (verify before visit), anything else/missing → unable to verify. Always carries the Medicare-Advantage disclaimer. No API key needed.
 - `lib/marketplace.ts` — real: CMS Marketplace API (`marketplace.api.healthcare.gov`). Requires `CMS_MARKETPLACE_API_KEY` (server-side env var only, see `.env.example`). `searchMarketplacePlans` looks up county FIPS for a ZIP then lists real plans; `checkMarketplaceCoverage` calls `/providers/covered` for a specific plan ID. Missing key or CMS errors degrade to a labeled "unavailable"/"not configured" state — never a fabricated answer.
-- `lib/insuranceCheck.ts` — `computeCoverage(npis, query)`: the one place that dispatches to medicare/marketplace/other and returns a `Map<npi, CoverageDisplay>`. Both API routes call this so list and detail screens can never disagree.
+- `lib/insuranceCheck.ts` — `computeCoverage(npis, query)`: the one place that dispatches to medicare/marketplace/other and returns a `Map<npi, CoverageDisplay>`, plus `parseInsuranceQuery` shared by every route. Only the coverage route calls `computeCoverage`, so list and detail screens can never disagree.
 - `lib/coverage.ts` — the shared `CoverageDisplay` shape every screen renders (`status`, `label`, `source`, `checkedAt`, ...). `coverageMarkerColor()` — green is reserved for `"covered"` only, everything else (including "we don't know") is neutral teal or rose.
 - `lib/insurers.ts` — static list of well-known carrier names + their official homepage, used only by the "Other" category's picker/directory link. Does **not** drive any coverage answer.
-- `lib/providerLocations.ts` — converts each provider's real NPI practice address into geocoder coordinates before the UI shows a map pin or distance. No synthetic pin fallback.
+- `lib/providerLocations.ts` — converts each provider's real NPI practice address into coordinates via `addressesToLatLng` (Census batch geocoder, one request per page) before the UI shows a map pin or distance. No synthetic pin fallback.
+- `lib/npi.ts` name search pulls up to 1,200 registry rows in parallel and keeps people whose *current* name matches — the registry also matches former names and sorts alphabetically, so page one of "Smith" is otherwise all ex-Smiths.
 - `lib/geo.ts` — ZIP → lat/lng (zippopotam.us), lat/lng → ZIP (Nominatim reverse geocode), Census/Nominatim forward geocoding, and haversine distance.
 - `lib/rateLimit.ts` — best-effort, per-instance in-memory rate limiting on API routes. Not shared across serverless instances — see comment in the file.
 - `lib/validation.ts` — ZIP/NPI/plan-ID/plan-year validators shared by both API routes.
 - `lib/searchParams.ts` — `buildSearchParams()`, the single source of truth for the search query string, used for both the initial load and "Load more" pagination so filters can't drift between pages.
 
-Screen flow: `/` (landing) → `/search` (form: pick ACA Marketplace / Medicare / Other, ZIP, and for Marketplace a real plan) → `/results?category=&zip=&planId=...` or `?name=&state=&category=...` → `/doctor/[npi]?category=...`. Results and profile are client components that fetch on mount (skeletons while loading); pages wrap them in Suspense because of `useSearchParams`.
+Screen flow: `/` (landing, ZIP only) → `/search?zip=` (step-by-step: one question per screen — location → insurance → plan/insurer → specialty; `?by=name` starts at the name step) → `/results?category=&zip=&planId=...` or `?name=&state=&category=...` → `/doctor/[npi]?category=...`. Results and profile are client components that fetch on mount (skeletons while loading); pages wrap them in Suspense because of `useSearchParams`.
 
-Leaflet must never render server-side — always `dynamic(() => import("./ResultsMap"), { ssr: false })`.
+Leaflet must never render server-side — always `dynamic(() => import("./ResultsMap"), { ssr: false })`. Tiles are standard OpenStreetMap (CARTO now requires an API key); the CSP `img-src` in `next.config.ts` must allow whatever tile host is used. Pins at the same coordinates are grouped into one numbered pin.
 
 ## Environment
 

@@ -1,27 +1,39 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Doctor } from "@/lib/npi";
 import type { LatLng } from "@/lib/geo";
-import { locationPrecisionLabel } from "@/lib/maps";
 import { coverageMarkerColor, type CoverageDisplay } from "@/lib/coverage";
-import { initialsOf } from "@/lib/options";
-import { ChevronRightIcon, RefreshIcon } from "./Icons";
+import { ChevronRightIcon, RefreshIcon, XIcon } from "./Icons";
 import { CoverageBadge } from "./CoverageBadge";
 import { PrimaryDirectionsLink } from "./DirectionsLinks";
 
 type MapDoctor = Doctor & { coverage?: CoverageDisplay };
+type Group = { key: string; lat: number; lng: number; doctors: MapDoctor[] };
 
-function pinIcon(color: string, selected: boolean, approximate: boolean) {
-  const s = selected ? 36 : 22;
+// Standard OpenStreetMap street tiles (free, no key). globals.css softens
+// their colors so provider pins stand out.
+const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+function groupColor(group: Group): string {
+  const statuses = group.doctors.map(d => d.coverage?.status);
+  if (statuses.includes("covered")) return coverageMarkerColor("covered");
+  if (statuses.length && statuses.every(s => s === "not_covered")) return coverageMarkerColor("not_covered");
+  return coverageMarkerColor(undefined);
+}
+
+function pinIcon(color: string, count: number, selected: boolean) {
+  const size = selected ? 40 : 32;
+  const label = count > 1 ? `<span class="map-pin-count">${count > 99 ? "99+" : count}</span>` : `<span class="map-pin-dot"></span>`;
   return L.divIcon({
-    className: "map-provider-pin-wrap",
-    html: `<span class="map-provider-pin${selected ? " is-selected" : ""}${approximate ? " is-approximate" : ""}" style="--pin-color:${color}" aria-hidden="true"><span class="map-provider-pin-core"></span></span>`,
-    iconSize: [s, s],
-    iconAnchor: [s / 2, s / 2],
+    className: "map-pin-wrap",
+    html: `<span class="map-pin${selected ? " is-selected" : ""}" style="--pin-color:${color};--pin-size:${size}px" aria-hidden="true">${label}</span>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size],
   });
 }
 
@@ -29,7 +41,6 @@ export default function ResultsMap({
   center,
   doctors,
   query,
-  refiningLocations = false,
   onSearchArea,
 }: {
   center: LatLng;
@@ -42,38 +53,75 @@ export default function ResultsMap({
   const mapRef = useRef<L.Map | null>(null);
   const markerLayerRef = useRef<L.LayerGroup | null>(null);
   const pannedRef = useRef(false);
-  const [selected, setSelected] = useState<MapDoctor | null>(null);
+  const fittedGroups = useRef<Group[] | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [panned, setPanned] = useState(false);
+  const [refit, setRefit] = useState(0);
+  // True while the map moves on its own (fitting pins, resizing) so only a
+  // person dragging or zooming shows "Search this area".
+  const programmaticMove = useRef(true);
+
+  const groups = useMemo(() => {
+    const byKey = new Map<string, Group>();
+    for (const d of doctors) {
+      if (d.lat === null || d.lng === null) continue;
+      const key = d.lat.toFixed(5) + "," + d.lng.toFixed(5);
+      const group = byKey.get(key) ?? { key, lat: d.lat, lng: d.lng, doctors: [] };
+      group.doctors.push(d);
+      byKey.set(key, group);
+    }
+    return [...byKey.values()];
+  }, [doctors]);
+  const selected = groups.find(g => g.key === selectedKey) ?? null;
 
   useEffect(() => {
     if (!mapDiv.current) return;
     setPanned(false);
     pannedRef.current = false;
-    setSelected(null);
+    fittedGroups.current = null;
+    setSelectedKey(null);
     const map = L.map(mapDiv.current, {
       zoomControl: false,
       attributionControl: true,
-      preferCanvas: true,
     }).setView([center.lat, center.lng], 14);
     mapRef.current = map;
-    L.control.zoom({ position: "bottomright" }).addTo(map);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors",
+    L.control.zoom({ position: "topright" }).addTo(map);
+    L.tileLayer(TILE_URL, {
+      attribution: TILE_ATTRIBUTION,
       maxZoom: 19,
     }).addTo(map);
 
-    let ready = false;
-    map.once("moveend", () => { ready = true; });
+    programmaticMove.current = true;
+    map.once("moveend", () => { programmaticMove.current = false; });
     const handleMoveStart = () => {
-      if (ready) {
+      if (!programmaticMove.current) {
         pannedRef.current = true;
         setPanned(true);
       }
     };
     map.on("movestart", handleMoveStart);
+    map.on("click", () => setSelectedKey(null));
+
+    // The map can be created while hidden (List view on phones). Re-measure
+    // whenever its box changes size so tiles fill it once it is shown.
+    let wasHidden = mapDiv.current.offsetWidth === 0;
+    const observer = new ResizeObserver(() => {
+      const el = mapDiv.current;
+      if (!el || !el.offsetWidth) { wasHidden = true; return; }
+      programmaticMove.current = true;
+      map.invalidateSize();
+      programmaticMove.current = false;
+      if (wasHidden) {
+        wasHidden = false;
+        fittedGroups.current = null;
+        setRefit(n => n + 1);
+      }
+    });
+    observer.observe(mapDiv.current);
 
     return () => {
-      map.off("movestart", handleMoveStart);
+      observer.disconnect();
+      map.off();
       markerLayerRef.current = null;
       map.remove();
       mapRef.current = null;
@@ -84,79 +132,76 @@ export default function ResultsMap({
     const map = mapRef.current;
     if (!map) return;
     markerLayerRef.current?.remove();
-
     const layer = L.layerGroup().addTo(map);
     markerLayerRef.current = layer;
 
-    const pinned = doctors.filter((d) => d.lat !== null && d.lng !== null);
-    const colorFor = (d: MapDoctor) => coverageMarkerColor(d.coverage?.status);
-    const markers: L.Marker[] = [];
-    pinned.forEach((d) => {
-      const isSelected = selected?.npi === d.npi;
-      const approximate = d.locationPrecision === "zip" || d.locationApproximate;
-      const marker = L.marker([d.lat!, d.lng!], {
-        title: `${d.name} — ${locationPrecisionLabel(d)}`,
-        alt: d.name,
-        icon: pinIcon(colorFor(d), isSelected, approximate),
+    const markers = groups.map((group) => {
+      const isSelected = group.key === selectedKey;
+      const first = group.doctors[0];
+      const marker = L.marker([group.lat, group.lng], {
+        title: group.doctors.length > 1 ? `${group.doctors.length} providers at ${first.address1}` : first.name,
+        alt: first.name,
+        icon: pinIcon(groupColor(group), group.doctors.length, isSelected),
         keyboard: true,
+        zIndexOffset: isSelected ? 1000 : 0,
       }).addTo(layer);
-      marker.on("click", () => setSelected(d));
-      markers.push(marker);
+      marker.on("click", (e) => { L.DomEvent.stopPropagation(e); setSelectedKey(group.key); });
+      return marker;
     });
 
-    if (markers.length && !pannedRef.current) {
-      const bounds = L.featureGroup(markers).getBounds().pad(0.22);
-      map.fitBounds(bounds, { maxZoom: markers.length === 1 ? 15 : 17 });
+    // Only re-frame the map when the set of providers changes, not when a pin
+    // is selected or closed.
+    if (markers.length && !pannedRef.current && fittedGroups.current !== groups) {
+      fittedGroups.current = groups;
+      const bounds = L.featureGroup(markers).getBounds().pad(0.15);
+      programmaticMove.current = true;
+      map.fitBounds(bounds, { maxZoom: markers.length === 1 ? 16 : 17, animate: false });
+      programmaticMove.current = false;
     }
-  }, [doctors, selected?.npi]);
-
-  useEffect(() => {
-    if (!selected) return;
-    const updated = doctors.find((doctor) => doctor.npi === selected.npi);
-    if (updated && updated !== selected) setSelected(updated);
-  }, [doctors, selected]);
+  }, [groups, selectedKey, refit]);
 
   function handleSearchArea() {
     if (!mapRef.current || !onSearchArea) return;
     const c = mapRef.current.getCenter();
+    setPanned(false);
     onSearchArea(c.lat, c.lng);
   }
 
-  const pinnedCount = doctors.filter(d => d.lat !== null && d.lng !== null).length;
-  const addressLevelCount = doctors.filter(d => d.lat !== null && d.lng !== null && d.locationPrecision === "address").length;
+  const pinnedCount = groups.reduce((n, g) => n + g.doctors.length, 0);
+  const unpinned = doctors.length - pinnedCount;
 
   return (
     <div className="results-map-shell">
       <div ref={mapDiv} className="results-map-canvas" />
-      <div className="map-legend" aria-label="Map legend">
-        <span><i className="map-legend-pin" /> Address-level pin</span>
-        <span><i className="map-legend-pin map-legend-pin-approx" /> Approximate pin</span>
-      </div>
-      {refiningLocations && (
-        <p className="map-refine-status" role="status"><span aria-hidden="true" />Refining pins</p>
-      )}
       {panned && onSearchArea && (
         <button type="button" className="map-area-button" onClick={handleSearchArea}>
-          <RefreshIcon size={13} />
+          <RefreshIcon size={14} />
           Search this area
         </button>
       )}
-      <p className="map-accuracy-note">
-        {pinnedCount} of {doctors.length} loaded providers mapped · {addressLevelCount} address-level. Pins come from public practice addresses and may not mark an entrance.
-      </p>
+      {unpinned > 0 && !selected && doctors.length > 1 && (
+        <p className="map-accuracy-note">{unpinned} provider{unpinned === 1 ? "'s address" : "s' addresses"} could not be placed on the map and appear in the list only.</p>
+      )}
       {selected && (
-        <div className="map-selected-provider" role="region" aria-label={`Selected provider: ${selected.name}`}>
-          <div className="avatar">{initialsOf(selected.name)}</div>
-          <div className="doctor-card-text">
-            <p className="doctor-card-name"><Link href={`/doctor/${selected.npi}${query}`}>{selected.name}</Link></p>
-            <p className="doctor-card-meta">{selected.specialty}{selected.distanceMi !== null && ` · ${selected.distanceMi} mi`}</p>
-            <p className="location-confidence">{locationPrecisionLabel(selected)}</p>
-            {selected.coverage && <CoverageBadge coverage={selected.coverage} />}
-            <div className="map-selected-actions">
-              <PrimaryDirectionsLink doctor={selected} />
-              <Link href={`/doctor/${selected.npi}${query}`}>View profile <ChevronRightIcon size={14} /></Link>
-            </div>
-          </div>
+        <div className="map-selected-provider" role="region" aria-label={selected.doctors.length > 1 ? `${selected.doctors.length} providers at ${selected.doctors[0].address1}` : `Selected provider: ${selected.doctors[0].name}`}>
+          <button type="button" className="map-selected-close" aria-label="Close" onClick={() => setSelectedKey(null)}><XIcon size={16} /></button>
+          {selected.doctors.length > 1 && <p className="map-selected-heading">{selected.doctors.length} providers at {selected.doctors[0].address1}</p>}
+          <ul className="map-selected-list">
+            {selected.doctors.slice(0, 6).map(d => (
+              <li key={d.npi}>
+                <p className="doctor-card-name"><Link href={`/doctor/${d.npi}${query}`}>{d.name}</Link></p>
+                <p className="doctor-card-meta">{d.specialty}{d.distanceMi !== null && ` · ${d.distanceMi} mi`}</p>
+                {d.coverage && <CoverageBadge coverage={d.coverage} />}
+                {selected.doctors.length === 1 && (
+                  <div className="map-selected-actions">
+                    <PrimaryDirectionsLink doctor={d} />
+                    <Link href={`/doctor/${d.npi}${query}`}>View profile <ChevronRightIcon size={14} /></Link>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          {selected.doctors.length > 6 && <p className="doctor-card-meta">and {selected.doctors.length - 6} more in the list</p>}
         </div>
       )}
     </div>

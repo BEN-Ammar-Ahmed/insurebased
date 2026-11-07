@@ -1,3 +1,4 @@
+import { isValidPlanId, isValidPlanYear } from "./validation";
 import { storedMedicare } from "./providerStore";
 import type { CoverageDisplay } from "./coverage";
 import { COVERAGE_LABELS, unsupportedCoverage } from "./coverage";
@@ -74,4 +75,28 @@ export async function computeCoverage(
   // "other" — no free verified source exists for these carriers.
   for (const npi of npis) out.set(npi, unsupportedCoverage(query.insurerName));
   return out;
+}
+
+// Reads the insurance part of a query string. Shared by every API route so a
+// plan can never be validated differently on two screens.
+export function parseInsuranceQuery(sp: URLSearchParams): InsuranceQuery | { error: string } {
+  const category = sp.get("category") ?? "none";
+  if (category === "medicare") return { category: "medicare" };
+  if (category === "marketplace") {
+    const planId = sp.get("planId") ?? "";
+    const planYear = parseInt(sp.get("planYear") ?? "", 10);
+    if (!isValidPlanId(planId)) return { error: "invalid_plan" };
+    if (!isValidPlanYear(planYear)) return { error: "invalid_year" };
+    return {
+      category: "marketplace",
+      planId,
+      planName: sp.get("planName") ?? "Selected plan",
+      issuerName: sp.get("issuerName") ?? "",
+      planYear,
+    };
+  }
+  if (category === "other") {
+    return { category: "other", insurerName: sp.get("insurerName") || undefined };
+  }
+  return { category: "none" };
 }

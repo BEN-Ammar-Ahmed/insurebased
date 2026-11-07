@@ -33,6 +33,11 @@ test("homepage search validation, navigation and accessibility", async ({ page }
   expect(result.violations).toEqual([]);
   await page.route("**/api/doctors/search?**", route => route.fulfill({ json: { center: null, doctors: [], hasMore: false } }));
   await page.getByRole("button", { name: "Find doctors", exact: true }).click();
+  await expect(page).toHaveURL(/\/search\?zip=60614/);
+  await expect(page.getByRole("heading", { name: "What insurance do you have?" })).toBeVisible();
+  await page.getByRole("button", { name: /Skip the insurance check/ }).click();
+  await expect(page.getByRole("heading", { name: "What kind of care do you need?" })).toBeVisible();
+  await page.getByRole("button", { name: "Show all providers" }).click();
   await expect(page.getByRole("heading", { name: "No providers found" })).toBeVisible();
   expect(errors).toEqual([]);
 });

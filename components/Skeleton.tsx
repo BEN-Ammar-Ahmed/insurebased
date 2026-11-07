@@ -16,7 +16,7 @@ export default function SkeletonCards({ count = 4 }: { count?: number }) {
         <span />
         <div>
           <strong>Searching nearby providers</strong>
-          <p>This stays here on slow connections until results or an error return.</p>
+          <p>Looking up official provider records and office locations.</p>
         </div>
       </div>
       <ol className="search-skeleton-stages" aria-hidden="true">

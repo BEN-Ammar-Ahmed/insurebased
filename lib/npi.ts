@@ -70,7 +70,9 @@ export function normalizeNpiResult(raw: any): Doctor | null {
   const taxonomy =
     taxonomies.find((t) => t.primary) ?? taxonomies[0] ?? { desc: "Provider" };
 
-  const credential = (basic.credential ?? "")
+  const rawCredential = String(basic.credential ?? "");
+  // Some records are typed all lowercase ("m.d."); keep mixed case like "RPh" as filed.
+  const credential = (rawCredential === rawCredential.toLowerCase() ? rawCredential.toUpperCase() : rawCredential)
     .replace(/\./g, "")
     .replace(/^-+$/, "")
     .trim();
@@ -156,6 +158,43 @@ async function searchDefaultDoctors(params: { zip: string; state?: string; skip?
   return { doctors: page.doctors.slice(skip, skip + NPI_PAGE_SIZE), hasMore: page.doctors.length > skip + NPI_PAGE_SIZE || (page.active.length > 0 && page.sourceSkip <= 1000) };
 }
 
+const nameSearchCache = new Map<string, { doctors: Doctor[]; expires: number }>();
+const NAME_PAGES = [0, 200, 400, 600, 800, 1000];
+
+// The registry sorts name matches alphabetically and also matches former
+// names, so for a common name like "Smith" the first page is all people who
+// used to be called Smith. Pull every page the registry allows in parallel,
+// then keep people whose current name matches.
+async function searchByName(params: { lastName: string; firstName?: string; state?: string; skip: number }): Promise<{ doctors: Doctor[]; hasMore: boolean }> {
+  const key = [params.lastName, params.firstName ?? "", params.state ?? ""].join("|").toLowerCase();
+  let entry = nameSearchCache.get(key);
+  if (!entry || entry.expires < Date.now()) {
+    const base: Record<string, string> = { last_name: params.lastName, limit: "200" };
+    if (params.firstName) base.first_name = params.firstName;
+    if (params.state) base.state = params.state;
+    const first = await callNpi({ ...base, skip: "0" });
+    const rest = first.length === 200
+      ? await Promise.all(NAME_PAGES.slice(1).map(skip => callNpi({ ...base, skip: String(skip) }).catch(() => [])))
+      : [];
+    const raw = [first, ...rest].flat();
+    const prefix = (value?: string) => (value ?? "").replace(/\*$/, "").toLowerCase();
+    const lastPrefix = prefix(params.lastName);
+    const firstPrefix = prefix(params.firstName);
+    const current = raw.filter(r =>
+      String(r?.basic?.last_name ?? "").toLowerCase().startsWith(lastPrefix) &&
+      (!firstPrefix || String(r?.basic?.first_name ?? "").toLowerCase().startsWith(firstPrefix)));
+    const byNpi = new Map<string, Doctor>();
+    for (const r of current.length ? current : raw) {
+      const doctor = normalizeNpiResult(r);
+      if (doctor) byNpi.set(doctor.npi, doctor);
+    }
+    entry = { doctors: [...byNpi.values()], expires: Date.now() + 300000 };
+    if (nameSearchCache.size >= 200) nameSearchCache.delete(nameSearchCache.keys().next().value!);
+    nameSearchCache.set(key, entry);
+  }
+  return { doctors: entry.doctors.slice(params.skip, params.skip + NPI_PAGE_SIZE), hasMore: entry.doctors.length > params.skip + NPI_PAGE_SIZE };
+}
+
 export async function searchNpi(params: {
   zip?: string;
   specialty?: string;
@@ -172,6 +211,10 @@ export async function searchNpi(params: {
     });
   }
 
+  if (params.lastName && !params.zip && !params.specialty) {
+    return searchByName({ lastName: params.lastName, firstName: params.firstName, state: params.state, skip: params.skip ?? 0 });
+  }
+
   const query: Record<string, string> = {};
   if (params.zip) query.postal_code = params.zip;
   if (params.specialty) query.taxonomy_description = params.specialty;
@@ -181,7 +224,16 @@ export async function searchNpi(params: {
   if (params.skip) query.skip = String(params.skip);
 
   const results = await callNpi(query);
+  // The registry also matches former/other names, so "smith" can return a
+  // provider named Albeedh. Only keep records whose current name matches.
+  const prefix = (value?: string) => (value ?? "").replace(/\*$/, "").toLowerCase();
+  const lastPrefix = prefix(params.lastName);
+  const firstPrefix = prefix(params.firstName);
   const doctors = results
+    .filter((raw) =>
+      (!lastPrefix || String(raw?.basic?.last_name ?? "").toLowerCase().startsWith(lastPrefix)) &&
+      (!firstPrefix || String(raw?.basic?.first_name ?? "").toLowerCase().startsWith(firstPrefix))
+    )
     .map(normalizeNpiResult)
     .filter((d): d is Doctor => d !== null)
     .filter((d) => !params.zip || d.zip === params.zip);

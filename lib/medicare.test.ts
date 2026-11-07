@@ -55,7 +55,7 @@ describe("checkMedicareAssignment", () => {
   });
 
   it("chunks large Medicare checks and does not fail every doctor when one chunk fails", async () => {
-    const npis = Array.from({ length: 25 }, (_, i) => `8${String(i).padStart(9, "0")}`);
+    const npis = Array.from({ length: 60 }, (_, i) => `8${String(i).padStart(9, "0")}`);
     global.fetch = vi
       .fn()
       .mockResolvedValueOnce({
@@ -69,7 +69,7 @@ describe("checkMedicareAssignment", () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
     expect(result.get(npis[0])).toMatchObject({ status: "assigned" });
     expect(result.get(npis[1])).toMatchObject({ status: "no_record" });
-    expect(result.get(npis[20])).toMatchObject({ status: "unavailable" });
+    expect(result.get(npis[50])).toMatchObject({ status: "unavailable" });
   });
 });
 

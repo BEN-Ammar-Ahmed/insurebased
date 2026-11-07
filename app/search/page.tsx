@@ -1,26 +1,28 @@
 import type { Metadata } from "next";
-export const metadata: Metadata = { title: "Find Doctors", ...(process.env.SITE_URL ? { alternates: { canonical: "/search" } } : {}) };
 import SearchForm from "@/components/SearchForm";
 
-export default function SearchPage() {
+export const metadata: Metadata = { title: "Find Doctors", ...(process.env.SITE_URL ? { alternates: { canonical: "/search" } } : {}) };
+
+function first(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function SearchPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const sp = await searchParams;
+  const zip = first(sp.zip);
+  const lat = first(sp.lat);
+  const lng = first(sp.lng);
+  const start = {
+    zip: zip && /^\d{5}$/.test(zip) ? zip : undefined,
+    lat: lat && Number.isFinite(Number(lat)) ? lat : undefined,
+    lng: lng && Number.isFinite(Number(lng)) ? lng : undefined,
+    byName: first(sp.by) === "name",
+  };
   return (
-    <>
-      <main className="screen search-screen">
-
-        <section className="search-intro" aria-labelledby="search-title">
-          <h1 id="search-title" className="page-heading">
-            Build a precise search
-          </h1>
-          <p className="page-subtitle">
-            Choose insurance details when you have them, or search a doctor by
-            name and verify coverage from the profile.
-          </p>
-        </section>
-
-        <section className="surface-panel" aria-label="Detailed search form">
-          <SearchForm />
-        </section>
-      </main>
-    </>
+    <main className="screen search-screen">
+      <section className="surface-panel wizard-panel" aria-label="Find a provider">
+        <SearchForm start={start} />
+      </section>
+    </main>
   );
 }

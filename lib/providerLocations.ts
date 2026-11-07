@@ -1,7 +1,7 @@
-import { addressToLatLng, milesBetween, type LatLng } from "./geo";
+import { addressesToLatLng, milesBetween, type LatLng } from "./geo";
 import type { Doctor } from "./npi";
 
-export const MAX_SERVER_PROVIDER_GEOCODES = 24;
+export const MAX_SERVER_PROVIDER_GEOCODES = 60;
 
 export function providerFullAddress(
   doctor: Pick<Doctor, "address1" | "city" | "state" | "zip">
@@ -14,29 +14,31 @@ export function providerFullAddress(
     .join(", ");
 }
 
+// Places every provider's real practice address on the map with one batch
+// geocoder request. Mailing-only addresses and non-matches get no pin.
 export async function geocodeProviderLocations<T extends Doctor>(
   doctors: T[],
   center: LatLng | null,
   limit = MAX_SERVER_PROVIDER_GEOCODES
 ): Promise<T[]> {
-  const capped = doctors.slice(0, limit);
-  const geocoded = await Promise.all(
-    capped.map(async (doctor) => {
-      if (doctor.addressKind === "mailing" || !doctor.address1) return doctor;
-      const coords = await addressToLatLng(providerFullAddress(doctor));
-      if (!coords) return doctor;
-
-      return {
-        ...doctor,
-        lat: coords.lat,
-        lng: coords.lng,
-        distanceMi: center ? milesBetween(center, coords) : null,
-        locationApproximate: false,
-        locationPrecision: "address" as const,
-        locationSource: "census" as const,
-      };
-    })
+  const candidates = doctors
+    .slice(0, limit)
+    .filter(d => d.lat === null && d.addressKind !== "mailing" && d.address1);
+  if (!candidates.length) return doctors;
+  const points = await addressesToLatLng(
+    candidates.map(d => ({ id: d.npi, street: d.address1, city: d.city, state: d.state, zip: d.zip }))
   );
-
-  return doctors.map((doctor, index) => geocoded[index] ?? doctor);
+  return doctors.map((doctor) => {
+    const coords = doctor.lat === null ? points.get(doctor.npi) : undefined;
+    if (!coords) return doctor;
+    return {
+      ...doctor,
+      lat: coords.lat,
+      lng: coords.lng,
+      distanceMi: center ? milesBetween(center, coords) : null,
+      locationApproximate: false,
+      locationPrecision: "address" as const,
+      locationSource: "census" as const,
+    };
+  });
 }

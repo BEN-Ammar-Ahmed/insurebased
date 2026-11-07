@@ -59,3 +59,57 @@ export function milesBetween(a: LatLng, b: LatLng): number {
   const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return Math.round(3958.8 * 2 * Math.asin(Math.sqrt(s)) * 10) / 10;
 }
+
+export type AddressInput = { id: string; street: string; city: string; state: string; zip: string };
+
+function csvField(value: string): string {
+  return '"' + value.replace(/"/g, "'").replace(/[\r\n]+/g, " ") + '"';
+}
+
+// Parses one row of the Census batch response:
+// "id","input address","Match","Exact","matched address","lng,lat","tigerId","side"
+function parseCensusBatchRow(line: string): { id: string; coords: LatLng | null } | null {
+  const fields = [...line.matchAll(/"([^"]*)"/g)].map(m => m[1]);
+  if (fields.length < 3) return null;
+  const [id, , status, , , point] = fields;
+  if (status !== "Match" || !point) return { id, coords: null };
+  const [lng, lat] = point.split(",").map(Number);
+  return { id, coords: validCoords(lat, lng) ? { lat, lng } : null };
+}
+
+// Geocodes many street addresses with one request to the US Census batch
+// geocoder (typically well under a second for 50 addresses). Addresses that
+// do not match are simply absent from the result — never guessed.
+export async function addressesToLatLng(addresses: AddressInput[]): Promise<Map<string, LatLng>> {
+  const out = new Map<string, LatLng>();
+  const pending: AddressInput[] = [];
+  for (const a of addresses) {
+    if (!a.street || !a.city || !a.state) continue;
+    const hit = cached(addressCache, `${a.street}, ${a.city}, ${a.state} ${a.zip}`.trim().toLowerCase());
+    if (hit) out.set(a.id, hit); else pending.push(a);
+  }
+  if (!pending.length) return out;
+  if (pending.length === 1) {
+    const [a] = pending;
+    const coords = await addressToLatLng(`${a.street}, ${a.city}, ${a.state} ${a.zip}`);
+    if (coords) out.set(a.id, coords);
+    return out;
+  }
+  try {
+    const csv = pending.map(a => [a.id, a.street, a.city, a.state, a.zip].map(csvField).join(",")).join("\n");
+    const form = new FormData();
+    form.append("addressFile", new Blob([csv], { type: "text/csv" }), "addresses.csv");
+    form.append("benchmark", "Public_AR_Current");
+    const res = await fetch("https://geocoding.geo.census.gov/geocoder/locations/addressbatch", { method: "POST", body: form, signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return out;
+    const byId = new Map(pending.map(a => [a.id, a]));
+    for (const line of (await res.text()).split(/\r?\n/)) {
+      const row = parseCensusBatchRow(line);
+      const input = row && byId.get(row.id);
+      if (!row?.coords || !input) continue;
+      remember(addressCache, `${input.street}, ${input.city}, ${input.state} ${input.zip}`.trim().toLowerCase(), row.coords);
+      out.set(row.id, row.coords);
+    }
+  } catch { /* Unmatched providers stay in the list without a pin. */ }
+  return out;
+}

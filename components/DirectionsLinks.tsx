@@ -34,14 +34,14 @@ export function DirectionsChoices({ doctor }: { doctor: Destination }) {
   return (
     <div className="directions-choices" aria-label="Open directions">
       {isApple && (
-        <a href={appleDirectionsUrl(doctor)} target="_blank" rel="noreferrer" className="btn-primary">
+        <a href={appleDirectionsUrl(doctor)} target="_blank" rel="noreferrer" className="btn-secondary">
           <MapPinIcon size={17} />
           Apple Maps
         </a>
       )}
-      <a href={googleDirectionsUrl(doctor)} target="_blank" rel="noreferrer" className={isApple ? "btn-secondary" : "btn-primary"}>
+      <a href={googleDirectionsUrl(doctor)} target="_blank" rel="noreferrer" className="btn-secondary">
         <MapPinIcon size={17} />
-        Google Maps
+        {isApple ? "Google Maps" : "Get directions"}
       </a>
     </div>
   );

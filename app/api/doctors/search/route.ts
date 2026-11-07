@@ -1,38 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { storedSearch, storedCoordinates, storedZip } from "@/lib/providerStore";
+import { storedSearch, storedCoordinates, storedZip, providerPool } from "@/lib/providerStore";
 import { searchNpi, type Doctor } from "@/lib/npi";
-import {
-  zipToLatLng,
-  latLngToZip,
-  type LatLng,
-} from "@/lib/geo";
-import { computeCoverage, type InsuranceQuery } from "@/lib/insuranceCheck";
-import type { CoverageDisplay } from "@/lib/coverage";
-import { isValidZip, isValidPlanId, isValidPlanYear } from "@/lib/validation";
+import { zipToLatLng, latLngToZip, type LatLng } from "@/lib/geo";
+import { geocodeProviderLocations } from "@/lib/providerLocations";
+import { parseInsuranceQuery } from "@/lib/insuranceCheck";
+import { isValidZip } from "@/lib/validation";
 import { rateLimitResponse } from "@/lib/rateLimit";
 
-function parseInsuranceQuery(sp: URLSearchParams): InsuranceQuery | { error: string } {
-  const category = sp.get("category") ?? "none";
-  if (category === "medicare") return { category: "medicare" };
-  if (category === "marketplace") {
-    const planId = sp.get("planId") ?? "";
-    const planYear = parseInt(sp.get("planYear") ?? "", 10);
-    if (!isValidPlanId(planId)) return { error: "invalid_plan" };
-    if (!isValidPlanYear(planYear)) return { error: "invalid_year" };
-    return {
-      category: "marketplace",
-      planId,
-      planName: sp.get("planName") ?? "Selected plan",
-      issuerName: sp.get("issuerName") ?? "",
-      planYear,
-    };
-  }
-  if (category === "other") {
-    return { category: "other", insurerName: sp.get("insurerName") || undefined };
-  }
-  return { category: "none" };
-}
-
+// Returns providers with real office pins as fast as possible. Insurance
+// coverage is NOT computed here — the client fetches it from
+// /api/doctors/coverage so a slow government source never blocks the list.
 export async function GET(req: NextRequest) {
   const limited = await rateLimitResponse(req, "search");
   if (limited) return limited;
@@ -69,6 +46,7 @@ export async function GET(req: NextRequest) {
   let doctors: Doctor[];
   let hasMore = false;
   let center: LatLng | null = null;
+  let resolvedZip: string | null = zip || null;
   try {
     if (name) {
       const parts = name.trim().split(/\s+/);
@@ -82,7 +60,7 @@ export async function GET(req: NextRequest) {
         skip,
       }));
     } else if (area) {
-      const resolvedZip = await latLngToZip(area.lat, area.lng);
+      resolvedZip = await latLngToZip(area.lat, area.lng);
       if (!resolvedZip) {
         return NextResponse.json({ error: "area_unresolved" }, { status: 502 });
       }
@@ -106,25 +84,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "npi_unavailable" }, { status: 502 });
   }
 
-  try { doctors = await storedCoordinates(doctors, center); } catch { /* Provider list stays usable if only location storage fails. */ }
+  if (providerPool()) {
+    try { doctors = await storedCoordinates(doctors, center); } catch { /* List stays usable without stored pins. */ }
+  }
+  // Anything without a stored pin is matched live against the Census geocoder.
+  doctors = await geocodeProviderLocations(doctors, center);
 
-  const coverage = await computeCoverage(
-    doctors.map((d) => d.npi),
-    insuranceQuery
-  );
+  // A name search has no ZIP center; center the map on the matches instead.
+  if (!center) {
+    const pinned = doctors.find(d => d.lat !== null && d.lng !== null);
+    if (pinned) center = { lat: pinned.lat!, lng: pinned.lng! };
+  }
 
-  const withCoverage: (Doctor & { coverage?: CoverageDisplay })[] = doctors.map((d) => ({
-    ...d,
-    coverage: coverage.get(d.npi),
-  }));
+  if (!name) {
+    doctors.sort((a, b) => (a.distanceMi ?? Infinity) - (b.distanceMi ?? Infinity));
+  }
 
-  const rank = (c?: CoverageDisplay) =>
-    c?.status === "covered" ? 0 : c?.status === "not_covered" ? 2 : 1;
-  withCoverage.sort((a, b) => {
-    const r = rank(a.coverage) - rank(b.coverage);
-    if (r !== 0) return r;
-    return (a.distanceMi ?? 99) - (b.distanceMi ?? 99);
-  });
-
-  return NextResponse.json({ center, doctors: withCoverage, hasMore, skip, nextSkip: skip + 50 });
+  return NextResponse.json({ center, zip: resolvedZip, doctors, hasMore, skip, nextSkip: skip + 50 });
 }

@@ -10,8 +10,10 @@ import { COVERAGE_LABELS, type CoverageDisplay } from "./coverage";
 // being treated as a positive match.
 const CMS_DATASET_ID = "mj5m-pzi6";
 const CMS_QUERY_BASE = `https://data.cms.gov/provider-data/api/1/datastore/query/${CMS_DATASET_ID}/0`;
-const MEDICARE_BATCH_SIZE = 20;
-const MEDICARE_TIMEOUT_MS = 7000;
+// CMS scans the whole dataset per request (~5-6s) no matter how many NPIs are
+// asked for, so one request per page of results is far faster than many.
+const MEDICARE_BATCH_SIZE = 50;
+const MEDICARE_TIMEOUT_MS = 15000;
 
 export type MedicareResult = (
   | { status: "assigned" }
@@ -30,13 +32,16 @@ async function fetchMedicareChunk(npis: string[]): Promise<Map<string, MedicareR
       "properties[0]": "npi",
       "properties[1]": "ind_assgn",
       limit: String(npis.length * 4),
+      // Skipping the row count and schema roughly halves CMS response time.
+      count: "false",
+      schema: "false",
     });
     npis.forEach((npi, i) => qs.append(`conditions[0][value][${i}]`, npi));
 
     const res = await fetch(`${CMS_QUERY_BASE}?${qs}`, {
       signal: AbortSignal.timeout(MEDICARE_TIMEOUT_MS),
       cache: "no-store",
-      headers: { "User-Agent": "doct-lookup-demo (educational project)" },
+      headers: { "User-Agent": "InsureBased provider lookup (public data)", Accept: "application/json" },
     });
     if (!res.ok) throw new Error(`CMS Doctors & Clinicians API responded ${res.status}`);
     const data = await res.json();
@@ -61,7 +66,7 @@ async function fetchMedicareChunk(npis: string[]): Promise<Map<string, MedicareR
             : { status: "no_record" };
       result.checkedAt = checkedAt;
       if (cache.size >= 5000) cache.delete(cache.keys().next().value!);
-      cache.set(npi, { result, expires: Date.now() + 3600000 });
+      cache.set(npi, { result, expires: Date.now() + 86400000 });
       results.set(npi, result);
     }
   } catch {

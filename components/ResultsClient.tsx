@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { Doctor } from "@/lib/npi";
 import type { LatLng } from "@/lib/geo";
-import type { CoverageDisplay } from "@/lib/coverage";
+import { COVERAGE_LABELS, type CoverageDisplay } from "@/lib/coverage";
 import DoctorCard from "./DoctorCard";
 import LazyResultsMap from "./LazyResultsMap";
 import SkeletonCards from "./Skeleton";
+import { ListIcon, MapIcon } from "./Icons";
 
 type ApiDoctor = Doctor & { coverage?: CoverageDisplay };
-type ApiData = { center: LatLng | null; doctors: ApiDoctor[]; hasMore: boolean; nextSkip?: number };
+type ApiData = { center: LatLng | null; zip?: string | null; doctors: ApiDoctor[]; hasMore: boolean; nextSkip?: number };
 const errors: Record<string, [string, string]> = {
   invalid_zip: ["Check your ZIP code", "Enter a five-digit US ZIP code and search again."],
   invalid_area: ["Check your location", "Enter a ZIP code to search a valid US area."],
@@ -19,27 +20,40 @@ const errors: Record<string, [string, string]> = {
   rate_limit_unavailable: ["Search protection is unavailable", "The service is temporarily unavailable. Try again shortly."],
   area_unresolved: ["Location could not be resolved", "Enter a ZIP code instead."],
 };
+
+function insuranceLabel(sp: URLSearchParams): string {
+  const category = sp.get("category");
+  if (category === "medicare") return "Original Medicare";
+  if (category === "marketplace") return sp.get("planName") || "ACA Marketplace plan";
+  if (category === "other") return sp.get("insurerName") || "Other insurance";
+  return "";
+}
+
 export default function ResultsClient() {
   const sp = useSearchParams();
   const queryString = sp.toString();
+  const category = sp.get("category") ?? "none";
+  const checksCoverage = category === "medicare" || category === "marketplace" || category === "other";
   const [data, setData] = useState<ApiData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [locatingPins, setLocatingPins] = useState(false);
-  const [pinError, setPinError] = useState("");
   const [view, setView] = useState("list");
   const [filter, setFilter] = useState("");
+  const [onlyCovered, setOnlyCovered] = useState(false);
   const [area, setArea] = useState<LatLng | null>(null);
+  const [pendingCoverage, setPendingCoverage] = useState<Set<string>>(new Set());
   const request = useRef<AbortController | null>(null);
   const generation = useRef(0);
+  const requestedCoverage = useRef(new Set<string>());
+
   const fetchData = useCallback(async (skip = 0, override?: LatLng | null) => {
     const id = ++generation.current;
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
     const timeout = window.setTimeout(() => controller.abort(), 45000);
-    if (skip) setLoadingMore(true); else { setLoading(true); setData(null); }
+    if (skip) setLoadingMore(true); else { setLoading(true); setData(null); requestedCoverage.current = new Set(); setPendingCoverage(new Set()); }
     setError(null);
     const query = new URLSearchParams(queryString);
     query.set("skip", String(skip));
@@ -59,62 +73,95 @@ export default function ResultsClient() {
       if (id === generation.current) { setLoading(false); setLoadingMore(false); }
     }
   }, [queryString]);
+
   useEffect(() => {
-    setArea(null); setFilter(""); setView("list");
+    setArea(null); setFilter(""); setOnlyCovered(false); setView("list");
     void fetchData();
     return () => { request.current?.abort(); };
   }, [fetchData]);
-  async function locatePins() {
-    if (!data) return;
+
+  // Coverage comes from slower official sources, so it loads after the list
+  // and fills in each card's badge when it returns.
+  useEffect(() => {
+    if (!data || !checksCoverage) return;
+    const missing = data.doctors.filter(d => !d.coverage && !requestedCoverage.current.has(d.npi)).map(d => d.npi);
+    if (!missing.length) return;
+    missing.forEach(npi => requestedCoverage.current.add(npi));
+    setPendingCoverage(previous => new Set([...previous, ...missing]));
     const id = generation.current;
-    setLocatingPins(true); setPinError("");
-    try {
-      const response = await fetch("/api/doctors/geocode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ center: data.center, doctors: data.doctors.filter(d => d.lat === null).slice(0, 3) }), signal: AbortSignal.timeout(12000) });
-      if (!response.ok) throw new Error();
-      const { results } = await response.json();
+    const query = new URLSearchParams(queryString);
+    for (const key of ["zip", "lat", "lng", "specialty", "name", "state", "skip", "mode"]) query.delete(key);
+    query.set("npis", missing.join(","));
+    const markDone = (results: Record<string, CoverageDisplay>) => {
       if (id !== generation.current) return;
-      const points = new Map<string, {lat:number;lng:number;distanceMi:number|null;locationPrecision?:"address";locationSource?:"census"}>(results.map((p: {npi:string;lat:number;lng:number;distanceMi:number|null;locationPrecision?:"address";locationSource?:"census"}) => [p.npi, p]));
-      setData(previous => previous ? { ...previous, doctors: previous.doctors.map(d => { const point = points.get(d.npi); return point ? { ...d, ...point, locationApproximate: false } : d; }) } : previous);
-      if (!results.length) setPinError("No address match was found. Use the listed address for directions.");
-    } catch { setPinError("Address matching is unavailable. The provider list is still available."); }
-    finally { setLocatingPins(false); }
-  }
-  const filtered = useMemo(() => (data?.doctors ?? []).filter(d => !filter || d.specialty === filter), [data, filter]);
+      setData(previous => previous ? { ...previous, doctors: previous.doctors.map(d => results[d.npi] ? { ...d, coverage: results[d.npi] } : d) } : previous);
+      setPendingCoverage(previous => { const next = new Set(previous); missing.forEach(npi => next.delete(npi)); return next; });
+    };
+    fetch("/api/doctors/coverage?" + query, { signal: AbortSignal.timeout(30000) })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status))))
+      .then(payload => markDone(payload.coverage ?? {}))
+      .catch(() => {
+        const checkedAt = new Date().toISOString();
+        markDone(Object.fromEntries(missing.map(npi => [npi, { status: "unavailable", label: COVERAGE_LABELS.unavailable, source: null, checkedAt } satisfies CoverageDisplay])));
+      });
+  }, [data, checksCoverage, queryString]);
+
+  const coveredCount = (data?.doctors ?? []).filter(d => d.coverage?.status === "covered").length;
+  const filtered = useMemo(
+    () => (data?.doctors ?? []).filter(d => (!filter || d.specialty === filter) && (!onlyCovered || d.coverage?.status === "covered")),
+    [data, filter, onlyCovered]
+  );
   const specialties = [...new Set((data?.doctors ?? []).map(d => d.specialty))].sort();
   const detail = new URLSearchParams(queryString);
-  for (const key of ["zip", "specialty", "name", "state", "skip"]) detail.delete(key);
+  for (const key of ["zip", "lat", "lng", "specialty", "name", "state", "skip", "mode"]) detail.delete(key);
   const detailQuery = detail.size ? "?" + detail : "";
-  const summary = sp.get("name") || (area ? "Map area" : sp.get("zip") || "Current location");
+  const place = sp.get("name") ? `“${sp.get("name")}”${sp.get("state") ? " in " + sp.get("state") : ""}` : area ? "this map area" : sp.get("zip") || data?.zip || "your location";
+  const summaryParts = [sp.get("specialty"), insuranceLabel(sp)].filter(Boolean);
   const [errorTitle, errorBody] = errors[error ?? ""] ?? ["Provider records are unavailable", "The request failed or timed out. Check your connection and try again."];
+  const checkingCount = pendingCoverage.size;
+
   return <main className="screen results-screen">
-    <h1>Doctors near you</h1>
-    <div className="results-toolbar">
-      <Link className="query-card" href="/search" aria-label="Edit search"><span className="query-text">{summary}{sp.get("specialty") ? " · " + sp.get("specialty") : ""}</span><span className="query-edit">Edit search</span></Link>
-      <div className="pill-toggle results-view-toggle" role="group" aria-label="Results view">
-        <button type="button" aria-pressed={view === "list"} onClick={() => setView("list")}>List</button>
-        <button type="button" aria-pressed={view === "map"} onClick={() => setView("map")} disabled={!data?.center}>Map</button>
+    <div className="results-head">
+      <div>
+        <h1 className="results-title">{sp.get("name") ? "Providers named " : "Providers near "}{place}</h1>
+        {summaryParts.length > 0 && <p className="results-subtitle">{summaryParts.join(" · ")}</p>}
       </div>
+      <Link className="btn-secondary results-edit" href="/search">Edit search</Link>
     </div>
+
     {loading && <SkeletonCards />}
     {error && <div className="card empty-card" role="alert"><h2 className="empty-card-title">{errorTitle}</h2><p>{errorBody}</p><button className="btn-primary" onClick={() => void fetchData(data?.doctors.length ?? 0, area)}>Try again</button><Link className="text-action-link" href="/search">Edit search</Link></div>}
     {!loading && data && data.doctors.length === 0 && <section className="card empty-card"><h2>No providers found</h2><p>Try another ZIP code, remove a specialty, or check the provider name.</p><Link className="btn-primary" href="/search">Change search</Link></section>}
-    {!loading && data && data.doctors.length > 0 && <div className="results-workspace" data-view={view}>
-      <details className="results-filters" open><summary>Filters</summary><div className="results-filter-body">
-        <label htmlFor="result-specialty">Specialty in these results</label><select id="result-specialty" value={filter} onChange={e => setFilter(e.target.value)}><option value="">All specialties</option>{specialties.map(s => <option key={s}>{s}</option>)}</select>
-        <p>Filters apply to loaded results. Load more to see additional providers. Coverage is never inferred from specialty.</p>
-      </div></details>
-      <section className="results-list" aria-label="Provider results">
-        <p className="results-summary" role="status">{filtered.length} provider{filtered.length === 1 ? "" : "s"} shown</p>
-        {filtered.length === 0 && <p>No loaded providers match this filter. Choose another specialty.</p>}
-        {filtered.map(d => <DoctorCard key={d.npi} doctor={d} query={detailQuery} />)}
-        {data.hasMore && <button className="btn-primary" disabled={loadingMore} onClick={() => void fetchData(data.nextSkip ?? data.doctors.length, area)}>{loadingMore ? "Loading…" : "Load more doctors"}</button>}
-      </section>
-      <aside className="results-map-panel" aria-label="Provider map">
-        {data.doctors.some(d => d.lat === null) && <><p className="coverage-caption">Unmatched offices stay in the list without a pin. Address-level pins are geocoded from the public practice address and may not mark a building entrance.</p><button type="button" className="text-action-link" disabled={locatingPins} onClick={() => void locatePins()}>{locatingPins ? "Matching addresses…" : "Match 3 more office addresses"}</button></>}
-        {pinError && <p role="status" className="coverage-caption">{pinError}</p>}
-        {data.center ? <LazyResultsMap center={data.center} doctors={filtered} query={detailQuery} onSearchArea={sp.get("name") ? undefined : (lat, lng) => { const next = { lat, lng }; setArea(next); void fetchData(0, next); }} /> : <div className="card"><h2>Map unavailable</h2><p>Provider addresses remain available in the list.</p></div>}
-      </aside>
-    </div>}
-    <p className="disclaimer">Public records may be delayed. Confirm the office, exact insurance plan, services, and patient availability before a visit.</p>
+    {!loading && data && data.doctors.length > 0 && <>
+      <div className="results-controls">
+        {specialties.length > 1 && <div className="results-control">
+          <label htmlFor="result-specialty">Specialty in these results</label>
+          <select id="result-specialty" value={filter} onChange={e => setFilter(e.target.value)}><option value="">All specialties</option>{specialties.map(s => <option key={s}>{s}</option>)}</select>
+        </div>}
+        {(category === "medicare" || category === "marketplace") && <label className="results-check">
+          <input type="checkbox" checked={onlyCovered} onChange={e => setOnlyCovered(e.target.checked)} disabled={checkingCount > 0 && coveredCount === 0} />
+          <span>Only verified matches{checkingCount === 0 ? ` (${coveredCount})` : ""}</span>
+        </label>}
+        <div className="pill-toggle results-view-toggle" role="group" aria-label="Results view">
+          <button type="button" aria-pressed={view === "list"} onClick={() => setView("list")}><ListIcon size={16} />List</button>
+          <button type="button" aria-pressed={view === "map"} onClick={() => setView("map")} disabled={!data.center}><MapIcon size={16} />Map</button>
+        </div>
+      </div>
+      <div className="results-workspace" data-view={view}>
+        <section className="results-list" aria-label="Provider results">
+          <p className="results-summary" role="status">
+            {filtered.length} provider{filtered.length === 1 ? "" : "s"}{!sp.get("name") ? ", closest first" : ""}
+            {checkingCount > 0 && <span className="results-checking"> · Checking {insuranceLabel(sp)} records…</span>}
+          </p>
+          {filtered.length === 0 && <p>No loaded providers match these filters.</p>}
+          {filtered.map(d => <DoctorCard key={d.npi} doctor={d} query={detailQuery} coveragePending={pendingCoverage.has(d.npi)} />)}
+          {data.hasMore && <button className="btn-secondary load-more" disabled={loadingMore} onClick={() => void fetchData(data.nextSkip ?? data.doctors.length, area)}>{loadingMore ? "Loading…" : "Load more doctors"}</button>}
+        </section>
+        <aside className="results-map-panel" aria-label="Provider map">
+          {data.center ? <LazyResultsMap center={data.center} doctors={filtered} query={detailQuery} onSearchArea={sp.get("name") ? undefined : (lat, lng) => { const next = { lat, lng }; setArea(next); void fetchData(0, next); }} /> : <div className="card"><h2>Map unavailable</h2><p>Provider addresses remain available in the list.</p></div>}
+        </aside>
+      </div>
+    </>}
+    <p className="disclaimer">From the official NPI Registry. Records can be out of date — call the office to confirm your plan and that they are taking new patients.</p>
   </main>;
 }
