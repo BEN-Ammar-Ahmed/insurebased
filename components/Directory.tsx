@@ -2,9 +2,8 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import type { Doctor } from "@/lib/npi";
-import { initialsOf } from "@/lib/options";
-import { ChevronRightIcon, PhoneIcon } from "./Icons";
-import { PrimaryDirectionsLink } from "./DirectionsLinks";
+import { ChevronRightIcon } from "./Icons";
+import DoctorCard from "./DoctorCard";
 import { MedicareBadge, PendingCoverageBadge, type CoverageLookup } from "./MedicareStatus";
 
 export type Crumb = { href?: string; label: string };
@@ -31,24 +30,12 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
 }
 
 export function DirectoryProviderCard({ doctor, lookup }: { doctor: Doctor; lookup: CoverageLookup }) {
-  const address = [doctor.address1, `${doctor.city}, ${doctor.state} ${doctor.zip}`].filter(Boolean).join(", ");
   return (
-    <article className="card doctor-card">
-      <div className="avatar" aria-hidden="true">{initialsOf(doctor.name)}</div>
-      <div className="doctor-card-text">
-        <h2 className="doctor-card-name"><Link href={`/doctor/${doctor.npi}`}>{doctor.name}</Link></h2>
-        <p className="doctor-card-specialty">{doctor.specialty}</p>
-        <p className="doctor-card-meta">{address}</p>
-        <Suspense fallback={<PendingCoverageBadge />}>
-          <MedicareBadge npi={doctor.npi} lookup={lookup} />
-        </Suspense>
-        <div className="doctor-actions">
-          {doctor.phone && <a href={"tel:" + doctor.phone.replace(/[^\d+]/g, "")}><PhoneIcon size={15} />{doctor.phone}</a>}
-          {doctor.address1 && <PrimaryDirectionsLink doctor={doctor} />}
-          <Link href={`/doctor/${doctor.npi}`}>View profile</Link>
-        </div>
-      </div>
-    </article>
+    <DoctorCard doctor={doctor} query="" badge={
+      <Suspense fallback={<PendingCoverageBadge />}>
+        <MedicareBadge npi={doctor.npi} lookup={lookup} />
+      </Suspense>
+    } />
   );
 }
 
@@ -71,9 +58,9 @@ export function DirectoryCta({ city }: { city?: string }) {
     <aside className="directory-cta">
       <div>
         <p className="directory-cta-title">Check your own insurance{city ? ` in ${city}` : ""}</p>
-        <p className="directory-cta-body">Search near your ZIP code and check providers against Medicare or your ACA Marketplace plan.</p>
+        <p className="directory-cta-body">Search near your ZIP code and check doctors against Medicare or your ACA Marketplace plan.</p>
       </div>
-      <Link className="btn-primary" href="/search">Start a search</Link>
+      <Link className="btn-primary" href="/">Search</Link>
     </aside>
   );
 }

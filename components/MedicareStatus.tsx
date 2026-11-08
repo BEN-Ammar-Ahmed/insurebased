@@ -6,8 +6,8 @@ import { CoverageBadge, CoverageCaption } from "./CoverageBadge";
 
 export type CoverageLookup = Promise<Map<string, CoverageDisplay>>;
 
-export function PendingCoverageBadge({ text = "Checking Medicare records…" }: { text?: string }) {
-  return <span className="badge-neutral badge-pending"><span className="pending-dot" aria-hidden="true" />{text}</span>;
+export function PendingCoverageBadge({ text = "Checking Medicare…" }: { text?: string }) {
+  return <span className="badge-neutral" role="status">{text}</span>;
 }
 
 export async function MedicareBadge({ npi, lookup }: { npi: string; lookup: CoverageLookup }) {

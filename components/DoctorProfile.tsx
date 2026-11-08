@@ -5,7 +5,8 @@ import Link from "next/link";
 import type { Doctor } from "@/lib/npi";
 import { COVERAGE_LABELS, type CoverageDisplay } from "@/lib/coverage";
 import { homepageFor } from "@/lib/insurers";
-import { initialsOf } from "@/lib/options";
+import { describeFailure } from "@/lib/failures";
+import { CATEGORIES, coverageCheckingText, type Category } from "@/lib/searchFlow";
 import { uniquePracticeLocations } from "@/lib/maps";
 import LazyResultsMap from "./LazyResultsMap";
 import {
@@ -76,7 +77,7 @@ export default function DoctorProfile({
         setDoctor(d.doctor);
         if (d.doctor?.coverage) setCoverage(d.doctor.coverage);
       })
-      .catch((e) => setError(e.message === "not_found" ? "Provider not found" : "Provider records are unavailable. Try again shortly."))
+      .catch((e) => setError(e instanceof Error && e.message === "not_found" ? "not_found" : e instanceof Error && e.name === "TimeoutError" ? "timeout" : "unavailable"))
       .finally(() => setLoading(false));
   }, [npi, query]);
 
@@ -97,6 +98,11 @@ export default function DoctorProfile({
     return () => { cancelled = true; };
   }, [doctor, coverage, category, query, medicareSlot]);
 
+  const categoryValue: Category = CATEGORIES.includes(category as Category) ? (category as Category) : "none";
+  const failure = !error ? null
+    : error === "not_found" ? { title: "We can't find this provider", body: "The NPI number may be wrong, or the record is no longer listed." }
+    : describeFailure(error, typeof navigator === "undefined" ? true : navigator.onLine);
+
   const practiceLocations = doctor ? uniquePracticeLocations(doctor) : [];
   const otherLocations = practiceLocations.slice(1);
   const directoryUrl = insurerName ? homepageFor(insurerName) : null;
@@ -109,34 +115,32 @@ export default function DoctorProfile({
 
   return (
     <main className="screen profile-screen">
-      <div className="app-header">
-        <button
-          type="button"
-          aria-label="Back"
-          onClick={() => {
-            // Visitors from Google have no results page to return to.
-            const fromThisSite = document.referrer && new URL(document.referrer).origin === location.origin;
-            if (fromThisSite && history.length > 1) history.back();
-            else location.assign(moreLink?.href ?? "/search");
-          }}
-          className="icon-button"
-        >
-          <ChevronLeftIcon size={18} />
-        </button>
-        <span className="app-header-title">Back</span>
-      </div>
+      <button
+        type="button"
+        className="link-button profile-back"
+        onClick={() => {
+          // Visitors from Google have no results page to return to.
+          const fromThisSite = document.referrer && new URL(document.referrer).origin === location.origin;
+          if (fromThisSite && history.length > 1) history.back();
+          else location.assign(moreLink?.href ?? "/");
+        }}
+      >
+        <ChevronLeftIcon size={20} />
+        Back
+      </button>
 
-      {error && (
-        <div className="card empty-card">
-          <p className="empty-card-title">{error}</p>
+      {failure && (
+        <section className="card empty-card" role="alert">
+          <h1 className="empty-card-title">{failure.title}</h1>
+          <p className="empty-card-body">{failure.body}</p>
           <button type="button" className="btn-primary" onClick={load}>
-            <RefreshIcon size={16} />
-            Retry
+            <RefreshIcon size={18} />
+            Try again
           </button>
-        </div>
+        </section>
       )}
 
-      {loading && !error && (
+      {loading && !failure && (
         <div className="profile-skeleton" role="status" aria-label="Loading provider">
           <div className="skeleton" style={{ height: 56, width: "70%" }} />
           <div className="skeleton" style={{ height: 50 }} />
@@ -147,8 +151,7 @@ export default function DoctorProfile({
       {doctor && (
         <div className="profile-stack">
           <section className="profile-hero-card">
-            <div className="avatar profile-avatar">{initialsOf(doctor.name)}</div>
-            <div className="doctor-card-text">
+            <div>
               <h1 className="profile-title">{doctor.name}</h1>
               <p className="profile-meta">{doctor.specialty}</p>
             </div>
@@ -164,7 +167,7 @@ export default function DoctorProfile({
             {!medicareSlot && category !== "none" && (
               <section className="card coverage-card" aria-live="polite">
                 <h2 className="profile-card-title">Insurance check</h2>
-                {coverageLoading && <span className="badge-neutral badge-pending"><span className="pending-dot" aria-hidden="true" />Checking official records…</span>}
+                {coverageLoading && <span className="badge-neutral" role="status">{coverageCheckingText(categoryValue)}</span>}
                 {coverage && (
                   <>
                     <CoverageBadge coverage={coverage} size={13.5} />
