@@ -18,32 +18,50 @@ test("homepage paints without JavaScript or external API", async ({ browser }) =
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("banner")).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-  await expect(page.getByLabel("ZIP code", { exact: true })).toBeVisible();
+  // Without JavaScript the search bar is a plain link to the question page.
+  await expect(page.getByRole("link", { name: /Search by ZIP code, address, or insurance/ })).toHaveAttribute("href", "/search");
   await context.close();
 });
-test("homepage search validation, navigation and accessibility", async ({ page }) => {
+test("search bar opens, validates, closes and searches", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.goto("/", { waitUntil: "domcontentloaded" });
-  await expect(page.locator(".home-quick-form")).toHaveAttribute("data-ready", "true");
-  await page.getByRole("button", { name: "Find doctors", exact: true }).click();
-  await expect(page.locator("#home-search-error")).toContainText("five-digit");
-  await page.getByLabel("ZIP code", { exact: true }).fill("60614");
+  await page.goto("/", { waitUntil: "networkidle" });
+  const pill = page.getByRole("link", { name: /Search by ZIP code, address, or insurance/ });
+  await pill.click();
+  const field = page.getByLabel("ZIP code or street address");
+  await expect(field).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(pill).toBeFocused();
+  await pill.click();
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Enter a ZIP code or address");
+  await field.fill("Chicago IL");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("street address with city and state");
+  await field.fill("60614");
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
   expect(result.violations).toEqual([]);
   await page.route("**/api/doctors/search?**", route => route.fulfill({ json: { center: null, doctors: [], hasMore: false } }));
-  await page.getByRole("button", { name: "Find doctors", exact: true }).click();
-  await expect(page).toHaveURL(/\/search\?zip=60614/);
-  await expect(page.getByRole("heading", { name: "What insurance do you have?" })).toBeVisible();
-  await page.getByRole("button", { name: /Skip the insurance check/ }).click();
-  await expect(page.getByRole("heading", { name: "What kind of care do you need?" })).toBeVisible();
-  await page.getByRole("button", { name: "Show all providers" }).click();
-  await expect(page.getByRole("heading", { name: "No providers found" })).toBeVisible();
+  await page.getByLabel(/Skip for now/).check();
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page).toHaveURL(/\/results\?zip=60614&category=none/);
+  await expect(page.getByRole("heading", { name: "No doctors found here." })).toBeVisible();
   expect(errors).toEqual([]);
 });
+test("question page asks one skippable question at a time", async ({ page }) => {
+  await page.route("**/api/doctors/search?**", route => route.fulfill({ json: { center: null, doctors: [], hasMore: false } }));
+  await page.goto("/search?zip=60614&category=medicare", { waitUntil: "networkidle" });
+  await expect(page.getByText("Question 1 of 2")).toBeVisible();
+  await page.getByRole("button", { name: "Heart doctor (cardiologist)" }).click();
+  await expect(page.getByRole("heading", { name: "How far are you willing to travel?" })).toBeVisible();
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(page.getByRole("heading", { name: "What kind of doctor do you need?" })).toBeVisible();
+  await page.getByRole("button", { name: "Heart doctor (cardiologist)" }).click();
+  await page.getByRole("button", { name: "Within 5 miles" }).click();
+  await expect(page).toHaveURL(/\/results\?zip=60614&category=medicare&specialty=Cardiology&within=5/);
+});
 test("mobile menu supports Escape and footer destinations exist", async ({ page, isMobile }) => {
-  await page.goto("/", { waitUntil: "domcontentloaded" });
-  await expect(page.locator(".home-quick-form")).toHaveAttribute("data-ready", "true");
+  await page.goto("/", { waitUntil: "networkidle" });
   if (isMobile || (page.viewportSize()?.width ?? 1280) < 768) {
     const button = page.getByRole("button", { name: "Menu", exact: true });
     await button.click();
@@ -61,21 +79,29 @@ test("mobile menu supports Escape and footer destinations exist", async ({ page,
   }
   const response = await page.goto("/does-not-exist");
   expect(response?.status()).toBe(404);
-  await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "We can't find that page." })).toBeVisible();
 });
 test("results, filters, pagination, map and profile actions", async ({ page }) => {
   await page.route("**/api/doctors/search?**", route => {
-    const skip = new URL(route.request().url()).searchParams.get("skip");
-    return route.fulfill({ json: { center: { lat: 41.92, lng: -87.65 }, doctors: skip === "0" ? [doctor] : [{ ...doctor, npi: "1487031407", name: "Second Fixture, MD", specialty: "Internal Medicine" }], hasMore: skip === "0" } });
+    const params = new URL(route.request().url()).searchParams;
+    const second = { ...doctor, npi: "1487031407", name: "Second Fixture, MD", specialty: "Internal Medicine" };
+    if (params.get("specialty")) return route.fulfill({ json: { center: { lat: 41.92, lng: -87.65 }, doctors: [second], hasMore: false } });
+    const skip = params.get("skip");
+    return route.fulfill({ json: { center: { lat: 41.92, lng: -87.65 }, doctors: skip === "0" ? [doctor] : [second], hasMore: skip === "0" } });
   });
   await page.route("**/api/doctors/1770664856?**", route => route.fulfill({ json: { doctor } }));
   await page.goto("/results?zip=60614&category=medicare");
   await expect(page.getByRole("article")).toHaveCount(1);
   await page.getByRole("button", { name: "Load more doctors" }).click();
   await expect(page.getByRole("article")).toHaveCount(2);
-  await page.getByLabel("Specialty in these results").selectOption("Internal Medicine");
+  const filtersButton = page.getByRole("button", { name: /^Filters/ });
+  if (await filtersButton.isVisible()) await filtersButton.click();
+  await page.getByLabel("Kind of doctor").selectOption("Internal Medicine");
+  await expect(page).toHaveURL(/specialty=Internal\+Medicine/);
   await expect(page.getByRole("article")).toHaveCount(1);
-  await page.getByLabel("Specialty in these results").selectOption("");
+  await expect(page.getByRole("article")).toContainText("Second Fixture, MD");
+  await page.getByLabel("Kind of doctor").selectOption("");
+  await expect(page.getByRole("article")).toHaveCount(1);
   if ((page.viewportSize()?.width ?? 1280) < 1024) {
     await page.getByRole("button", { name: "Map", exact: true }).click();
     await expect(page.locator(".results-map-canvas")).toBeVisible();
@@ -108,7 +134,7 @@ test("errors leave the shell visible and retries recover", async ({ page }) => {
   await expect(page.getByRole("banner")).toBeVisible();
   fail = false;
   await page.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "No providers found" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "No doctors found here." })).toBeVisible();
 });
 test("responsive widths have no horizontal overflow", async ({ page }) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -118,23 +144,28 @@ test("responsive widths have no horizontal overflow", async ({ page }) => {
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   }
 });
-test("loading and offline failures keep navigation available", async ({ page }) => {
+test("loading and offline failures keep navigation available", async ({ page, context }) => {
   await page.route("**/api/doctors/search?**", route => route.abort("internetdisconnected"));
   await page.goto("/results?zip=60614");
-  await expect(page.locator(".empty-card[role=alert]")).toContainText("unavailable");
+  await expect(page.locator(".empty-card[role=alert]")).toContainText("Something went wrong on our end");
   await expect(page.getByRole("banner")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Edit search", exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit search", exact: true }).first()).toBeVisible();
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.locator(".empty-card[role=alert]")).toContainText("You're offline");
+  await context.setOffline(false);
 });
 test("unsupported coverage and unavailable ACA plans are honest", async ({ page }) => {
   await page.route("**/api/doctors/search?**", route => route.fulfill({ json: { center: null, doctors: [{ ...doctor, coverage: { status: "unsupported", label: "This insurance plan is not currently verified by this website.", source: null, checkedAt: "2026-10-05T12:00:00Z" } }], hasMore: false } }));
   await page.goto("/results?zip=60614&category=other");
   await expect(page.getByText("This insurance plan is not currently verified by this website.")).toBeVisible();
   await page.route("**/api/insurance/marketplace/plans?**", route => route.fulfill({ status: 503, json: { error: "not_configured" } }));
-  await page.goto("/search");
-  await page.getByLabel("Insurance type", { exact: true }).selectOption("marketplace");
-  await page.getByLabel("ZIP code", { exact: true }).fill("60614");
-  await expect(page.getByText("Insurance verification isn't configured on this site yet.")).toBeVisible();
-  await expect(page.getByLabel("Exact Marketplace plan")).toBeDisabled();
+  await page.goto("/search?zip=60614&category=marketplace");
+  await expect(page.getByText("Plan checks aren't available on this site yet.")).toBeVisible();
+  await page.getByRole("button", { name: "Continue without a plan" }).click();
+  await page.getByRole("button", { name: "Skip all and show results" }).click();
+  await expect(page).toHaveURL(/\/results\?zip=60614&category=none&noPlan=1/);
+  await expect(page.getByText("coverage not checked (no plan chosen)")).toBeVisible();
 });
 test("screenshots document representative layouts", async ({ page }, testInfo) => {
   for (const width of [375, 768, 1280, 1440]) {
@@ -149,6 +180,9 @@ test("invalid API input returns useful status codes", async ({ request }) => {
   expect((await request.get("/api/doctors/invalid")).status()).toBe(400);
   expect((await request.post("/api/doctors/geocode", { data: null })).status()).toBe(400);
   expect((await request.post("/api/doctors/geocode", { data: { doctors: [null], center: { lat: 999, lng: 0 } } })).status()).toBe(200);
+  expect((await request.post("/api/location", { data: { q: "" } })).status()).toBe(400);
+  expect((await request.post("/api/location", { data: { q: "Chicago IL" } })).status()).toBe(400);
+  expect(await (await request.post("/api/location", { data: { q: "60614" } })).json()).toEqual({ zip: "60614" });
 });
 
 test("InsureBased branding, icons and metadata remain usable at every header width", async ({ page }) => {

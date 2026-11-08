@@ -27,23 +27,26 @@ A mobile-first website where a person picks their health insurance, enters a ZIP
 
 ## Screens
 
-0. **Home (landing)** — added 2026-07-18 at owner's request: the site must not open directly on the search form. Minimal single-column landing: hero headline, one-line description, primary CTA to `/search`, sample doctor card, three "How it works" steps (pick insurance → enter ZIP → call with confidence), second CTA, disclaimer footer.
-1. **Search (`/search`)** — two tabs: "By insurance" (insurance category, ZIP input, optional specialty, exact Marketplace plan picker when configured) and "By doctor name" (name + optional state). Source-backed disclaimer in footer.
-2. **Results** — List/Map toggle. List: doctor cards (avatar initials, name, specialty, distance, address, green "Accepts X" badge); nearby doctors who don't accept the plan appear dimmed below matches. Map: Leaflet map with pins for matches; tapping a pin shows a mini card. Search summary pill at top returns to search.
-3. **Doctor profile** — name, specialty, NPI, address, tap-to-call phone button, full accepted-insurance chips (user's plan highlighted green, not-accepted shown in red section), small map of the office location.
+Screens 0–3 were reworked on 2026-11-08 (owner-approved redesign, see
+`docs/superpowers/specs/2026-11-07-redesign-design.md`).
+
+0. **Home** — one plain heading, a big rounded search bar that opens in place into the search panel (ZIP code, street address, or current location, plus insurance as four choices; Search or "More options"), and a "Browse doctors by city" link. Every other page has a search icon in the top bar that opens the same panel.
+1. **Question page (`/search`)** — one question per screen, each skippable, with "Skip all and show results": where (only if unknown), insurance (only if not chosen yet), exact ACA plan or insurer, kind of doctor (plain names), how far. `?by=name` asks for a doctor's name instead.
+2. **Results** — heading, one summary line, Edit search (opens the panel), filters (kind of doctor, how far, only confirmed for my insurance; behind a Filters button on phones), light doctor cards with one coverage line, List/Map toggle on smaller screens, honest no-results, error and offline messages.
+3. **Doctor profile** — plain heading, Original Medicare or plan check, office with Call and Directions, practice locations, official record links, office map.
 4. Reverse lookup reuses Results and Profile screens.
 5. **City directory (`/find`, `/find/[state]/[city]`, `/find/[state]/[city]/[specialty]`)** — added 2026-11-06 at owner's request so the site can be found through Google. Server-rendered pages for the 50 largest US cities × 12 specialties: breadcrumbs, heading, honest provider count, up to 50 provider cards with Original Medicare status streamed in, a "check your own insurance" CTA, and links to other specialties and cities. Provider profiles (`/doctor/[npi]`) are now server-rendered and indexable too, with Original Medicare status shown even when no insurance was chosen.
 
 ## Interactivity requirements
 
-The site must feel app-like and alive, not like a static page:
+Since the 2026-11-08 redesign the site is calm rather than "alive": the only
+animation is the search panel opening, and loading placeholders are still.
 
-- Skeleton loading cards while the API responds (never a blank screen or lone spinner).
-- Animated transitions: list/map crossfade, card tap feedback (scale press), staggered card entrance (30–50ms).
+- Still placeholder cards while the API responds (never a blank screen or lone spinner).
 - Debounced autosuggest on the doctor-name search.
-- Instant client-side re-filtering when the specialty filter changes on results.
+- "How far" re-filters loaded results instantly; changing the kind of doctor runs a new search.
 - Tap-to-call `tel:` links; tap address opens maps app.
-- All animations 150–300ms, transform/opacity only, disabled under reduced motion.
+- The panel animation is opacity/scale only, about 200ms, and disabled under reduced motion.
 
 ## Architecture
 
