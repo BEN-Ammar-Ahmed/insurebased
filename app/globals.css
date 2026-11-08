@@ -240,6 +240,9 @@ a, button { -webkit-tap-highlight-color: transparent; }
 .info-screen h2 { margin-bottom: 10px; }
 .info-screen a:not(.btn-primary):not(.btn-secondary) { color: var(--primary); text-decoration: underline; text-underline-offset: 4px; }
 .source-links { display: flex; flex-wrap: wrap; gap: 16px; }
+.error-screen { max-width: 640px; align-items: flex-start; gap: 20px; padding-top: clamp(40px, 8vh, 80px); }
+.error-screen p { margin: 0; }
+.error-screen .home-search { max-width: none; }
 .fld-large { min-height: 56px; }
 
 /* == Search panel == */
