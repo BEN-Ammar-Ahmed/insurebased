@@ -5,12 +5,19 @@ import { rateLimitResponse } from "@/lib/rateLimit";
 
 // Turns what someone typed in "Where are you looking?" into a ZIP or rounded
 // coordinates. Addresses go through the Census geocoder; if it has no match
-// we say so instead of guessing.
-export async function GET(req: NextRequest) {
+// we say so instead of guessing. POST so home addresses stay out of URLs.
+export async function POST(req: NextRequest) {
   const limited = await rateLimitResponse(req, "location");
   if (limited) return limited;
 
-  const text = req.nextUrl.searchParams.get("q") ?? "";
+  let text = "";
+  try {
+    const body = await req.json();
+    text = typeof body?.q === "string" ? body.q : "";
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
+
   const input = parseLocationInput(text);
   if (input.kind === "empty" || input.kind === "invalid") {
     const message = input.kind === "empty" ? LOCATION_MESSAGES.empty : input.message;

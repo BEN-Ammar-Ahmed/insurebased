@@ -9,6 +9,14 @@ export type Step = "location" | "name" | "insurance" | "plan" | "insurer" | "spe
 
 export const CATEGORIES: readonly Category[] = ["none", "medicare", "marketplace", "other"];
 
+// The four insurance answers, in the order the search panel shows them.
+export const INSURANCE_CHOICES: readonly { value: Category; title: string; detail: string }[] = [
+  { value: "medicare", title: "Medicare", detail: "Original Medicare" },
+  { value: "marketplace", title: "ACA Marketplace", detail: "HealthCare.gov plans" },
+  { value: "other", title: "Employer or other", detail: "Aetna, Blue Cross, …" },
+  { value: "none", title: "Skip for now", detail: "Show all doctors" },
+];
+
 function insuranceDetail(category: Category | null): Step[] {
   if (category === "marketplace") return ["plan"];
   if (category === "other") return ["insurer"];
