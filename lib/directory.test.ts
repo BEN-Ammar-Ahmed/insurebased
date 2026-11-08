@@ -16,6 +16,13 @@ function raw(npi: string, opts: { city?: string; purpose?: string; desc?: string
 }
 
 describe("specialties", () => {
+  it("gives every specialty a unique plain-language name", () => {
+    const plain = SPECIALTY_LIST.map(s => s.plain);
+    expect(plain.every(p => typeof p === "string" && p.trim().length > 0)).toBe(true);
+    expect(new Set(plain).size).toBe(plain.length);
+    expect(specialtyBySlug("cardiology")?.plain).toBe("Heart doctor (cardiologist)");
+  });
+
   it("maps plain labels to the registry's terms and checks the primary specialty", () => {
     const cardiology = specialtyByLabel("Cardiology")!;
     expect(cardiology.query).toBe("Cardiovascular Disease");
