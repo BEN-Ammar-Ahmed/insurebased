@@ -96,6 +96,7 @@ a, button { -webkit-tap-highlight-color: transparent; }
 .err-text { color: var(--danger); font-size: 16px; margin: 6px 0 0; }
 
 /* == Results == */
+.results-top { display: flex; flex-direction: column; gap: var(--space); }
 .results-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .results-subtitle { color: var(--muted); margin: 6px 0 0; }
 .results-filters { display: flex; flex-direction: column; gap: 12px; }

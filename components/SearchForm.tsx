@@ -77,15 +77,22 @@ export default function SearchForm({ start = {} }: { start?: SearchStart }) {
     heading.current?.focus();
   }, [step]);
 
-  // The plan list depends on ZIP and year.
+  // The plan list depends only on ZIP and year. Moving between questions must
+  // not clear it, or the chosen plan is lost and the plan is never checked.
+  const plansKey = /^\d{5}$/.test(planZip) ? `${planZip}|${planYear}` : "";
+  const loadedPlansKey = useRef<string | null>(null);
   useEffect(() => {
+    if (step !== "plan" || plansKey === loadedPlansKey.current) return;
+    loadedPlansKey.current = plansKey;
     setPlans(null); setPlanId(""); setPlansError(""); setPlansUnavailable(false); setPlansLoading(false);
-    if (step !== "plan" || !/^\d{5}$/.test(planZip)) return;
+    if (!plansKey) return;
+    const [zip, year] = plansKey.split("|");
     let cancelled = false;
+    let finished = false;
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 12000);
     setPlansLoading(true);
-    fetch(`/api/insurance/marketplace/plans?zip=${planZip}&year=${planYear}`, { signal: controller.signal })
+    fetch(`/api/insurance/marketplace/plans?zip=${zip}&year=${year}`, { signal: controller.signal })
       .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then((d) => {
         if (cancelled) return;
@@ -97,9 +104,13 @@ export default function SearchForm({ start = {} }: { start?: SearchStart }) {
         if (e.message === "503") setPlansUnavailable(true);
         else setPlansError("Couldn't load Marketplace plans right now. Try again in a moment, or skip this question.");
       })
-      .finally(() => { window.clearTimeout(timeout); if (!cancelled) setPlansLoading(false); });
-    return () => { cancelled = true; window.clearTimeout(timeout); controller.abort(); };
-  }, [step, planZip, planYear]);
+      .finally(() => { finished = true; window.clearTimeout(timeout); if (!cancelled) setPlansLoading(false); });
+    return () => {
+      cancelled = true; window.clearTimeout(timeout); controller.abort();
+      // Left before the list arrived: load it again next time.
+      if (!finished) loadedPlansKey.current = null;
+    };
+  }, [step, plansKey]);
 
   function submit(over: Partial<Answers> = {}) {
     const a = { ...answers, ...over };

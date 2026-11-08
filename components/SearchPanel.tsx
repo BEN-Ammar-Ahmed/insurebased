@@ -33,7 +33,9 @@ export async function resolvePlaceFromText(text: string): Promise<{ place?: Plac
   }
 }
 
-export default function SearchPanel({ initial = {}, onClose, titleId }: { initial?: PanelInitial; onClose?: () => void; titleId: string }) {
+// onNavigate runs just before leaving, so a panel that stays mounted (header,
+// results "Edit search") closes even when only the query string changes.
+export default function SearchPanel({ initial = {}, onClose, onNavigate, titleId }: { initial?: PanelInitial; onClose?: () => void; onNavigate?: () => void; titleId: string }) {
   const router = useRouter();
   const [text, setText] = useState(initial.location ?? (initial.place && !("zip" in initial.place) ? CURRENT_LOCATION_TEXT : ""));
   const [gpsPlace, setGpsPlace] = useState<Place | null>(initial.place && !("zip" in initial.place) ? initial.place : null);
@@ -51,6 +53,7 @@ export default function SearchPanel({ initial = {}, onClose, titleId }: { initia
       if (!result.place) { setError(result.error ?? LOCATION_MESSAGES.empty); return; }
       place = result.place;
     }
+    onNavigate?.();
     router.push(panelDestination({ place, category, more }));
   }
 
@@ -81,7 +84,7 @@ export default function SearchPanel({ initial = {}, onClose, titleId }: { initia
         <button type="submit" className="btn-primary btn-pill" disabled={busy}>{busy ? "Finding that address…" : "Search"}</button>
         <button type="button" className="link-button" onClick={() => void go(true)} disabled={busy}>More options ›</button>
       </div>
-      <Link className="text-action-link" href="/search?by=name">Search by a doctor&apos;s name instead</Link>
+      <Link className="text-action-link" href="/search?by=name" onClick={() => onNavigate?.()}>Search by a doctor&apos;s name instead</Link>
     </form>
   );
 }

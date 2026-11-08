@@ -19,7 +19,7 @@ export default function HeaderSearch() {
       </button>
       {open && (
         <div id="header-search-panel" className="header-search-panel">
-          <SearchPanel titleId="header-search-title" onClose={() => close()} />
+          <SearchPanel titleId="header-search-title" onClose={() => close()} onNavigate={() => close(false)} />
         </div>
       )}
     </div>

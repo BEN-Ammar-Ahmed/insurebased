@@ -34,10 +34,10 @@ test("search bar opens, validates, closes and searches", async ({ page }) => {
   await expect(pill).toBeFocused();
   await pill.click();
   await page.getByRole("button", { name: "Search", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("Enter a ZIP code or address");
+  await expect(page.locator(".err-text[role=alert]")).toContainText("Enter a ZIP code or address");
   await field.fill("Chicago IL");
   await page.getByRole("button", { name: "Search", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("street address with city and state");
+  await expect(page.locator(".err-text[role=alert]")).toContainText("street address with city and state");
   await field.fill("60614");
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
   expect(result.violations).toEqual([]);
@@ -59,6 +59,17 @@ test("question page asks one skippable question at a time", async ({ page }) => 
   await page.getByRole("button", { name: "Heart doctor (cardiologist)" }).click();
   await page.getByRole("button", { name: "Within 5 miles" }).click();
   await expect(page).toHaveURL(/\/results\?zip=60614&category=medicare&specialty=Cardiology&within=5/);
+});
+test("a chosen ACA plan is carried through every question to results", async ({ page }) => {
+  await page.route("**/api/insurance/marketplace/plans?**", route => route.fulfill({ json: { plans: [{ id: "12345IL0010001", name: "Gold PPO", issuerName: "Acme Health", metalLevel: "Gold" }] } }));
+  await page.route("**/api/doctors/search?**", route => route.fulfill({ json: { center: null, doctors: [], hasMore: false } }));
+  await page.route("**/api/doctors/coverage?**", route => route.fulfill({ json: { coverage: {} } }));
+  await page.goto("/search?zip=60614&category=marketplace", { waitUntil: "networkidle" });
+  await page.getByLabel("Plan", { exact: true }).selectOption("12345IL0010001");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Heart doctor (cardiologist)" }).click();
+  await page.getByRole("button", { name: "Within 5 miles" }).click();
+  await expect(page).toHaveURL(/category=marketplace&planId=12345IL0010001&planName=Gold+PPO/);
 });
 test("mobile menu supports Escape and footer destinations exist", async ({ page, isMobile }) => {
   await page.goto("/", { waitUntil: "networkidle" });

@@ -1,6 +1,7 @@
 // Where a search goes next: which questions the question page asks, and the
 // URLs the search panel and question page send people to.
 import type { Place } from "./locationInput";
+import { isValidPlanId, isValidPlanYear } from "./validation";
 
 export type Category = "none" | "medicare" | "marketplace" | "other";
 export type Within = 1 | 3 | 5 | 10;
@@ -77,6 +78,18 @@ export function resultsHref(r: ResultsLink): string {
   if (r.specialty) q.set("specialty", r.specialty);
   if (r.within) q.set("within", String(r.within));
   return `/results?${q}`;
+}
+
+// Links shared before the redesign sent ACA searches with an empty plan,
+// which the API rejects. Turn those into the honest "no plan chosen" search.
+export function repairLegacyResultsParams(params: URLSearchParams): URLSearchParams | null {
+  if (params.get("category") !== "marketplace") return null;
+  if (isValidPlanId(params.get("planId") ?? "") && isValidPlanYear(parseInt(params.get("planYear") ?? "", 10))) return null;
+  const q = new URLSearchParams(params);
+  for (const key of ["planId", "planName", "issuerName", "planYear"]) q.delete(key);
+  q.set("category", "none");
+  q.set("noPlan", "1");
+  return q;
 }
 
 export function coverageCheckingText(category: Category): string {

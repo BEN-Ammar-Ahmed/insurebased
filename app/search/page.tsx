@@ -24,7 +24,8 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   return (
     <main className="screen search-screen">
       <section className="wizard-panel" aria-label="Find a doctor">
-        <SearchForm start={start} />
+        {/* Keyed so a new search from the header starts the questions fresh. */}
+        <SearchForm key={JSON.stringify(start)} start={start} />
       </section>
     </main>
   );

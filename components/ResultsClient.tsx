@@ -6,7 +6,7 @@ import type { LatLng } from "@/lib/geo";
 import { COVERAGE_LABELS, type CoverageDisplay } from "@/lib/coverage";
 import { describeFailure } from "@/lib/failures";
 import { applyResultFilters, parseWithin } from "@/lib/resultFilters";
-import { CATEGORIES, coverageCheckingText, type Category } from "@/lib/searchFlow";
+import { CATEGORIES, coverageCheckingText, repairLegacyResultsParams, type Category } from "@/lib/searchFlow";
 import { specialtyByLabel } from "@/lib/specialties";
 import DoctorCard from "./DoctorCard";
 import LazyResultsMap from "./LazyResultsMap";
@@ -14,6 +14,7 @@ import SkeletonCards from "./Skeleton";
 import SearchPanel from "./SearchPanel";
 import ResultsFilters, { type FilterState } from "./ResultsFilters";
 import { ListIcon, MapIcon } from "./Icons";
+import { useSearchDisclosure } from "./useSearchDisclosure";
 
 type ApiDoctor = Doctor & { coverage?: CoverageDisplay };
 type ApiData = { center: LatLng | null; zip?: string | null; doctors: ApiDoctor[]; hasMore: boolean; nextSkip?: number };
@@ -37,6 +38,9 @@ export default function ResultsClient() {
   const sp = useSearchParams();
   const router = useRouter();
   const queryString = sp.toString();
+  // Old shared ACA links had an empty plan, which the API rejects.
+  const repaired = useMemo(() => repairLegacyResultsParams(new URLSearchParams(queryString)), [queryString]);
+  useEffect(() => { if (repaired) router.replace(`/results?${repaired}`); }, [repaired, router]);
   const fetchKey = useMemo(() => {
     const q = new URLSearchParams(queryString);
     VIEW_ONLY_PARAMS.forEach((key) => q.delete(key));
@@ -55,7 +59,7 @@ export default function ResultsClient() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [view, setView] = useState("list");
   const [onlyCovered, setOnlyCovered] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const { open: editing, setOpen: setEditing, close: closeEditing, opener: editOpener, area: editArea } = useSearchDisclosure<HTMLButtonElement>();
   const [area, setArea] = useState<LatLng | null>(null);
   const [pendingCoverage, setPendingCoverage] = useState<Set<string>>(new Set());
   const request = useRef<AbortController | null>(null);
@@ -90,10 +94,11 @@ export default function ResultsClient() {
   }, [fetchKey]);
 
   useEffect(() => {
-    setArea(null); setOnlyCovered(false); setView("list"); setEditing(false);
+    if (repaired) return;
+    setArea(null); setOnlyCovered(false); setView("list"); closeEditing(false);
     void fetchData();
     return () => { request.current?.abort(); };
-  }, [fetchData]);
+  }, [fetchData, repaired, closeEditing]);
 
   // Coverage comes from slower official sources, so it loads after the list
   // and fills in each card's badge when it returns.
@@ -163,14 +168,16 @@ export default function ResultsClient() {
   const filtersActive = Boolean(specialty || within);
 
   return <main className="screen results-screen">
+    <div className="results-top" ref={editArea}>
     <div className="results-head">
       <div>
         <h1 className="results-title">Doctors {place}</h1>
         {summary && <p className="results-subtitle">{summary}</p>}
       </div>
-      <button type="button" className="btn-secondary results-edit" aria-expanded={editing} onClick={() => setEditing(!editing)}>Edit search</button>
+      <button ref={editOpener} type="button" className="btn-secondary results-edit" aria-expanded={editing} onClick={() => (editing ? closeEditing() : setEditing(true))}>Edit search</button>
     </div>
-    {editing && <SearchPanel titleId="edit-search-title" initial={panelInitial} onClose={() => setEditing(false)} />}
+    {editing && <SearchPanel titleId="edit-search-title" initial={panelInitial} onClose={() => closeEditing()} onNavigate={() => closeEditing(false)} />}
+    </div>
 
     {!byName && (
       <ResultsFilters

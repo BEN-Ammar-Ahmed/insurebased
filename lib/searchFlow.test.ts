@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coverageCheckingText, panelDestination, questionSteps, resultsHref } from "./searchFlow";
+import { coverageCheckingText, panelDestination, questionSteps, repairLegacyResultsParams, resultsHref } from "./searchFlow";
 
 describe("questionSteps", () => {
   const place = { byName: false, hasPlace: true, askInsurance: false };
@@ -85,6 +85,25 @@ describe("resultsHref", () => {
 
   it("leaves out an empty distance", () => {
     expect(resultsHref({ place: { zip: "60614" }, category: "none", within: null })).toBe("/results?zip=60614&category=none");
+  });
+});
+
+describe("repairLegacyResultsParams", () => {
+  it("turns an old ACA link with an empty plan into an honest no-plan search", () => {
+    const fixed = repairLegacyResultsParams(new URLSearchParams("zip=60614&category=marketplace&planId=&planName=&issuerName=&planYear=2026&specialty=Cardiology"));
+    expect(fixed?.toString()).toBe("zip=60614&category=none&specialty=Cardiology&noPlan=1");
+  });
+
+  it("repairs an ACA link with an impossible plan year", () => {
+    expect(repairLegacyResultsParams(new URLSearchParams("zip=60614&category=marketplace&planId=12345IL0010001&planYear=1999"))?.get("noPlan")).toBe("1");
+  });
+
+  it("leaves a valid ACA link alone", () => {
+    expect(repairLegacyResultsParams(new URLSearchParams("zip=60614&category=marketplace&planId=12345IL0010001&planYear=2026"))).toBeNull();
+  });
+
+  it("leaves other insurance alone", () => {
+    expect(repairLegacyResultsParams(new URLSearchParams("zip=60614&category=medicare"))).toBeNull();
   });
 });
 
