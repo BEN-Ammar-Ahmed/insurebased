@@ -1,5 +1,24 @@
 # Optional official-data pipeline
 
+## Bundled Medicare assignment list (in use)
+
+`data/medicare/assignment.bin` is a compact copy of the CMS Doctors and
+Clinicians National Downloadable File (dataset `mj5m-pzi6`), keeping only
+NPI and `ind_assgn` (Y = accepts assignment, M = may accept). The site answers
+every Original Medicare check from this file: CMS's live API blocks requests
+from cloud hosts such as Vercel and is slow (5–10s) when it does answer.
+
+Refresh monthly, after CMS publishes a new release:
+
+    npm run medicare:refresh          # streams the ~850 MB CSV from CMS; nothing large is saved
+    npm test
+    git add data/medicare/assignment.bin && git commit -m "data: refresh Medicare list (CMS release YYYY-MM-DD)"
+
+The CMS release date is stored in the file and shown on every Medicare result
+("Source updated …"). If the file is missing, the site falls back to the live
+CMS API. Providers not in the file are labeled "Unable to verify", never "no".
+
+
 ## Current status
 
 Implemented: schema, indexed runtime adapter, staged streaming CSV ingestion,

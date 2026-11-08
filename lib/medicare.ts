@@ -1,4 +1,5 @@
 import { COVERAGE_LABELS, type CoverageDisplay } from "./coverage";
+import { bundledMedicareList, lookupAssignment } from "./medicareList";
 
 // Real data: CMS's public "Doctors and Clinicians" dataset (Care Compare),
 // which lists every clinician currently enrolled in Original Medicare and
@@ -84,6 +85,20 @@ export async function checkMedicareAssignment(
 ): Promise<Map<string, MedicareResult>> {
   const unique = [...new Set(npis)];
   const results = new Map<string, MedicareResult>();
+
+  // Preferred: the bundled copy of the same CMS file (instant, and works on
+  // hosts CMS blocks). The live API below is only a fallback.
+  const list = bundledMedicareList();
+  if (list) {
+    const checkedAt = new Date().toISOString();
+    for (const npi of unique) {
+      const value = lookupAssignment(list, npi);
+      const status = value === "Y" ? "assigned" as const : value === "M" ? "maybe" as const : "no_record" as const;
+      results.set(npi, { status, sourceUpdatedAt: list.sourceDate, checkedAt });
+    }
+    return results;
+  }
+
   const toFetch: string[] = [];
   for (const npi of unique) {
     const cached = cache.get(npi);
@@ -121,6 +136,7 @@ export function medicareCoverageDisplay(result: MedicareResult): CoverageDisplay
         label: COVERAGE_LABELS.medicareMaybe,
         source: SOURCE,
         checkedAt,
+        sourceUpdatedAt: result.sourceUpdatedAt,
         note: MEDICARE_ADVANTAGE_NOTE,
       };
     case "no_record":
@@ -129,6 +145,7 @@ export function medicareCoverageDisplay(result: MedicareResult): CoverageDisplay
         label: COVERAGE_LABELS.medicareUnknown,
         source: SOURCE,
         checkedAt,
+        sourceUpdatedAt: result.sourceUpdatedAt,
         note: MEDICARE_ADVANTAGE_NOTE,
       };
     case "unavailable":

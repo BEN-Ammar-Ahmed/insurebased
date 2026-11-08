@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { checkMedicareAssignment, medicareCoverageDisplay } from "./medicare";
 
+// These tests cover the live-API fallback, so hide the bundled list.
+vi.mock("./medicareList", () => ({ bundledMedicareList: () => null, lookupAssignment: () => null }));
+
 describe("checkMedicareAssignment", () => {
   const originalFetch = global.fetch;
 

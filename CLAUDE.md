@@ -9,6 +9,7 @@ Mobile-first Next.js site: pick an insurance category + ZIP → see real nearby 
 ## Commands
 
 ```bash
+npm run medicare:refresh   # rebuild data/medicare/assignment.bin from the latest CMS release (monthly)
 npm run dev        # dev server on :3000 (prefer the Claude preview launch config "doct-lookup")
 npm test           # vitest run (unit tests live next to source in lib/*.test.ts)
 npx vitest run lib/medicare.test.ts   # single test file
@@ -29,7 +30,7 @@ The browser never calls external APIs or holds any API key. Client components fe
 - `app/robots.ts` blocks only `/api/` and `/results`; `app/sitemap.ts` lists static pages + every directory page (needs `SITE_URL`). It uses relative imports because vitest has no `@/` alias.
 - `app/api/insurance/marketplace/plans/route.ts` — real ACA plans for a ZIP + year, used by the search form's plan picker.
 - `lib/npi.ts` — the only place that knows the NPI registry's raw shape. Normalizes its quirks: ALL-CAPS names, 9-digit ZIPs, LOCATION vs MAILING addresses, `--` credentials. Exports the `Doctor` type (no insurance field — coverage is computed per-search, not intrinsic to a doctor).
-- `lib/medicare.ts` — real: one batched query (up to 50 NPIs, `count=false&schema=false`, 15s timeout, 24h cache) against CMS's public "Doctors and Clinicians" dataset (id `mj5m-pzi6`), field `ind_assgn`. CMS returns 403 without a User-Agent. `Y` → accepts Medicare-approved amount, `M` → maybe (verify before visit), anything else/missing → unable to verify. Always carries the Medicare-Advantage disclaimer. No API key needed.
+- `lib/medicare.ts` — real: answers from the bundled CMS file `data/medicare/assignment.bin` (`lib/medicareList.ts`, sorted uint32 NPI sets + CMS release date; rebuild monthly with `npm run medicare:refresh`, see docs/DATA_PIPELINE.md). CMS's live API blocks Vercel's servers, so it is only a fallback when the file is missing: one batched query (up to 50 NPIs, `count=false&schema=false`, 15s timeout, 24h cache) against CMS's public "Doctors and Clinicians" dataset (id `mj5m-pzi6`), field `ind_assgn`. CMS returns 403 without a User-Agent. `Y` → accepts Medicare-approved amount, `M` → maybe (verify before visit), anything else/missing → unable to verify. Always carries the Medicare-Advantage disclaimer. No API key needed.
 - `lib/marketplace.ts` — real: CMS Marketplace API (`marketplace.api.healthcare.gov`). Requires `CMS_MARKETPLACE_API_KEY` (server-side env var only, see `.env.example`). `searchMarketplacePlans` looks up county FIPS for a ZIP then lists real plans; `checkMarketplaceCoverage` calls `/providers/covered` for a specific plan ID. Missing key or CMS errors degrade to a labeled "unavailable"/"not configured" state — never a fabricated answer.
 - `lib/insuranceCheck.ts` — `computeCoverage(npis, query)`: the one place that dispatches to medicare/marketplace/other and returns a `Map<npi, CoverageDisplay>`, plus `parseInsuranceQuery` shared by every route. Only the coverage route calls `computeCoverage`, so list and detail screens can never disagree.
 - `lib/coverage.ts` — the shared `CoverageDisplay` shape every screen renders (`status`, `label`, `source`, `checkedAt`, ...). `coverageMarkerColor()` — green is reserved for `"covered"` only, everything else (including "we don't know") is neutral teal or rose.
