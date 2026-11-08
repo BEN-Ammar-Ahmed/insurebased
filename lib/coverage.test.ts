@@ -14,11 +14,14 @@ describe("unsupportedCoverage", () => {
 
 describe("coverageMarkerColor", () => {
   it("reserves green for a real covered result only", () => {
-    expect(coverageMarkerColor("covered")).toBe("#0E8A5F");
-    expect(coverageMarkerColor("not_covered")).not.toBe("#0E8A5F");
-    expect(coverageMarkerColor("unknown")).not.toBe("#0E8A5F");
-    expect(coverageMarkerColor("unavailable")).not.toBe("#0E8A5F");
-    expect(coverageMarkerColor("unsupported")).not.toBe("#0E8A5F");
-    expect(coverageMarkerColor(undefined)).not.toBe("#0E8A5F");
+    expect(coverageMarkerColor("covered")).toBe("var(--ok-ink)");
+    for (const status of ["not_covered", "unknown", "unavailable", "unsupported", undefined] as const) {
+      expect(coverageMarkerColor(status)).not.toBe("var(--ok-ink)");
+    }
+  });
+
+  it("uses the design tokens, not raw colors", () => {
+    expect(coverageMarkerColor("not_covered")).toBe("var(--danger)");
+    expect(coverageMarkerColor(undefined)).toBe("var(--primary)");
   });
 });

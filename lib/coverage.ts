@@ -38,9 +38,9 @@ export type CoverageDisplay = {
 // Map pin / marker color. Green is reserved for a real "covered" result —
 // every other state (including "we don't know") uses a neutral color.
 export function coverageMarkerColor(status: CoverageStatus | undefined): string {
-  if (status === "covered") return "#0E8A5F";
-  if (status === "not_covered") return "#B5545C";
-  return "#0F6E8C";
+  if (status === "covered") return "var(--ok-ink)";
+  if (status === "not_covered") return "var(--danger)";
+  return "var(--primary)";
 }
 
 export function unsupportedCoverage(insurerName?: string): CoverageDisplay {

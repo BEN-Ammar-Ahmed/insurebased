@@ -167,9 +167,6 @@ export default function ResultsMap({
     onSearchArea(c.lat, c.lng);
   }
 
-  const pinnedCount = groups.reduce((n, g) => n + g.doctors.length, 0);
-  const unpinned = doctors.length - pinnedCount;
-
   return (
     <div className="results-map-shell">
       <div ref={mapDiv} className="results-map-canvas" />
@@ -178,9 +175,6 @@ export default function ResultsMap({
           <RefreshIcon size={14} />
           Search this area
         </button>
-      )}
-      {unpinned > 0 && !selected && doctors.length > 1 && (
-        <p className="map-accuracy-note">{unpinned} provider{unpinned === 1 ? "'s address" : "s' addresses"} could not be placed on the map and appear in the list only.</p>
       )}
       {selected && (
         <div className="map-selected-provider" role="region" aria-label={selected.doctors.length > 1 ? `${selected.doctors.length} providers at ${selected.doctors[0].address1}` : `Selected provider: ${selected.doctors[0].name}`}>

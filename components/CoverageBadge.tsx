@@ -21,7 +21,7 @@ export function CoverageBadge({
   size?: number;
 }) {
   return (
-    <span className={classFor(coverage.status)} style={{ fontSize: size + 0.5 }}>
+    <span className={classFor(coverage.status)}>
       <IconFor status={coverage.status} size={size} />
       <span className="coverage-badge-label">{coverage.label}</span>
     </span>
