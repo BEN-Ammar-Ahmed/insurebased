@@ -40,6 +40,8 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: projectRoot,
+  // The dark floating "N" badge in development looks like part of the page.
+  devIndicators: false,
   // lib/medicareList.ts reads this file at runtime with fs, which Next's
   // file tracing can't see on its own; include it in every server function.
   outputFileTracingIncludes: { "/**": ["./data/medicare/assignment.bin"] },

@@ -11,10 +11,10 @@
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
     "ingest": "tsx scripts/ingest.mts",
-    "medicare:refresh": "tsx scripts/build-medicare-list.mts"
+    "medicare:refresh": "tsx scripts/build-medicare-list.mts",
+    "icons": "tsx scripts/build-icons.mts"
   },
   "dependencies": {
-    "@fontsource/fraunces": "^5.3.0",
     "@fontsource/inter": "^5.3.0",
     "@vercel/speed-insights": "^2.0.0",
     "csv-parse": "^7.0.3",

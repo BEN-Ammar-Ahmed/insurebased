@@ -8,7 +8,6 @@ const inter = localFont({ src: [
   { path: "../node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2", weight: "400" },
   { path: "../node_modules/@fontsource/inter/files/inter-latin-600-normal.woff2", weight: "600" },
 ], variable: "--font-body", display: "swap" });
-const fraunces = localFont({ src: "../node_modules/@fontsource/fraunces/files/fraunces-latin-600-normal.woff2", variable: "--font-display", display: "swap" });
 
 const site = process.env.SITE_URL;
 const title = "InsureBased — Find Doctors by Insurance and Location";
@@ -34,7 +33,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#173e35",
+  themeColor: "#1d4f91",
 };
 
 export default function RootLayout({
@@ -43,7 +42,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} ${fraunces.variable}`}>
+    <html lang="en" className={inter.variable}>
       <body>
         <a className="skip-link" href="#page-content">Skip to content</a>
         <SiteHeader />
