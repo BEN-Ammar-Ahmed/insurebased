@@ -40,7 +40,9 @@ async function fetchMedicareChunk(npis: string[]): Promise<Map<string, MedicareR
 
     const res = await fetch(`${CMS_QUERY_BASE}?${qs}`, {
       signal: AbortSignal.timeout(MEDICARE_TIMEOUT_MS),
-      cache: "no-store",
+      // Cached for a day; Next only stores 200 responses, so failures retry.
+      // "no-store" would crash the daily-cached /find pages in production.
+      next: { revalidate: 86400 },
       headers: { "User-Agent": "InsureBased provider lookup (public data)", Accept: "application/json" },
     });
     if (!res.ok) throw new Error(`CMS Doctors & Clinicians API responded ${res.status}`);

@@ -110,7 +110,9 @@ async function callNpi(params: Record<string, string>): Promise<any[]> {
   });
   const res = await fetch(`${NPI_BASE}?${qs}`, {
     signal: AbortSignal.timeout(8000),
-    cache: "no-store",
+    // Cached for a day (only 200 responses are stored). "no-store" would
+    // crash the daily-cached /find pages in production.
+    next: { revalidate: 86400 },
   });
   if (!res.ok) throw new Error(`NPI registry responded ${res.status}`);
   const data = await res.json();
