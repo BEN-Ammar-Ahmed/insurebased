@@ -10,7 +10,10 @@ type MapDoctor = Doctor & { coverage?: CoverageDisplay };
 
 export type LazyResultsMapProps = {
   center: LatLng;
+  centerLabel?: string;
   doctors: MapDoctor[];
+  numbers?: Map<string, number>;
+  activeNpi?: string | null;
   query: string;
   refiningLocations?: boolean;
   onSearchArea?: (lat: number, lng: number) => void;

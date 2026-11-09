@@ -26,25 +26,43 @@ function groupColor(group: Group): string {
   return coverageMarkerColor(undefined);
 }
 
-function pinIcon(color: string, count: number, selected: boolean) {
-  const size = selected ? 40 : 32;
-  const label = count > 1 ? `<span class="map-pin-count">${count > 99 ? "99+" : count}</span>` : `<span class="map-pin-dot"></span>`;
+// A teardrop pin drawn so its tip sits exactly on the office's coordinates.
+const PIN_PATH = "M14 0C6.3 0 0 6.1 0 13.7 0 23.6 14 36 14 36s14-12.4 14-22.3C28 6.1 21.7 0 14 0z";
+function pinIcon(color: string, label: string, selected: boolean) {
+  const scale = selected ? 1.25 : 1;
+  const w = Math.round(28 * scale), h = Math.round(36 * scale);
   return L.divIcon({
     className: "map-pin-wrap",
-    html: `<span class="map-pin${selected ? " is-selected" : ""}" style="--pin-color:${color};--pin-size:${size}px" aria-hidden="true">${label}</span>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size],
+    html: `<span class="map-pin${selected ? " is-selected" : ""}" style="--pin-color:${color};width:${w}px;height:${h}px" aria-hidden="true"><svg viewBox="0 0 28 36" width="${w}" height="${h}"><path d="${PIN_PATH}"/></svg><span class="map-pin-label">${label}</span></span>`,
+    iconSize: [w, h],
+    iconAnchor: [w / 2, h],
   });
+}
+
+// Where distances are measured from: the ZIP's center or the searched point.
+const centerIcon = L.divIcon({ className: "map-center-wrap", html: '<span class="map-center" aria-hidden="true"></span>', iconSize: [20, 20], iconAnchor: [10, 10] });
+
+function groupLabel(group: Group, numbers?: Map<string, number>): string {
+  const nums = group.doctors.map(d => numbers?.get(d.npi)).filter((n): n is number => n !== undefined);
+  if (!nums.length) return group.doctors.length > 1 ? String(Math.min(group.doctors.length, 99)) : "";
+  const first = Math.min(...nums);
+  return group.doctors.length > 1 ? `${first}+` : String(first);
 }
 
 export default function ResultsMap({
   center,
+  centerLabel,
   doctors,
+  numbers,
+  activeNpi,
   query,
   onSearchArea,
 }: {
   center: LatLng;
+  centerLabel?: string;
   doctors: MapDoctor[];
+  numbers?: Map<string, number>;
+  activeNpi?: string | null;
   query: string;
   refiningLocations?: boolean;
   onSearchArea?: (lat: number, lng: number) => void;
@@ -135,13 +153,16 @@ export default function ResultsMap({
     const layer = L.layerGroup().addTo(map);
     markerLayerRef.current = layer;
 
+    if (centerLabel) {
+      L.marker([center.lat, center.lng], { icon: centerIcon, title: centerLabel, alt: centerLabel, interactive: false, keyboard: false, zIndexOffset: -1000 }).addTo(layer);
+    }
     const markers = groups.map((group) => {
-      const isSelected = group.key === selectedKey;
+      const isSelected = group.key === selectedKey || group.doctors.some(d => d.npi === activeNpi);
       const first = group.doctors[0];
       const marker = L.marker([group.lat, group.lng], {
         title: group.doctors.length > 1 ? `${group.doctors.length} providers at ${first.address1}` : first.name,
         alt: first.name,
-        icon: pinIcon(groupColor(group), group.doctors.length, isSelected),
+        icon: pinIcon(groupColor(group), groupLabel(group, numbers), isSelected),
         keyboard: true,
         zIndexOffset: isSelected ? 1000 : 0,
       }).addTo(layer);
@@ -153,12 +174,13 @@ export default function ResultsMap({
     // is selected or closed.
     if (markers.length && !pannedRef.current && fittedGroups.current !== groups) {
       fittedGroups.current = groups;
-      const bounds = L.featureGroup(markers).getBounds().pad(0.15);
+      const bounds = L.featureGroup(markers).getBounds();
+      if (centerLabel) bounds.extend([center.lat, center.lng]);
       programmaticMove.current = true;
-      map.fitBounds(bounds, { maxZoom: markers.length === 1 ? 16 : 17, animate: false });
+      map.fitBounds(bounds.pad(0.2), { maxZoom: 16, animate: false });
       programmaticMove.current = false;
     }
-  }, [groups, selectedKey, refit]);
+  }, [groups, selectedKey, refit, numbers, activeNpi, center, centerLabel]);
 
   function handleSearchArea() {
     if (!mapRef.current || !onSearchArea) return;
@@ -170,6 +192,7 @@ export default function ResultsMap({
   return (
     <div className="results-map-shell">
       <div ref={mapDiv} className="results-map-canvas" />
+      {centerLabel && <p className="map-legend"><span className="map-center" aria-hidden="true" />{centerLabel}. Distances are measured from here.</p>}
       {panned && onSearchArea && (
         <button type="button" className="map-area-button" onClick={handleSearchArea}>
           <RefreshIcon size={14} />
@@ -184,7 +207,8 @@ export default function ResultsMap({
             {selected.doctors.slice(0, 6).map(d => (
               <li key={d.npi}>
                 <p className="doctor-card-name"><Link href={`/doctor/${d.npi}${query}`}>{d.name}</Link></p>
-                <p className="doctor-card-meta">{d.specialty}{d.distanceMi !== null && ` · ${d.distanceMi} mi`}</p>
+                <p className="doctor-card-meta">{numbers?.get(d.npi) !== undefined && `#${numbers.get(d.npi)} · `}{d.specialty}{d.distanceMi !== null && ` · ${d.distanceMi} mi`}</p>
+                <p className="doctor-card-meta">{[d.placeName, d.address1].filter(Boolean).join(", ")}</p>
                 {d.coverage && <CoverageBadge coverage={d.coverage} />}
                 {selected.doctors.length === 1 && (
                   <div className="map-selected-actions">

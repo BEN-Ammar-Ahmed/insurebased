@@ -5,6 +5,8 @@ export type Doctor = {
   name: string;
   specialty: string;
   address1: string;
+  // A building or clinic name filed in place of the street line, if any.
+  placeName?: string;
   city: string;
   state: string;
   zip: string;
@@ -57,6 +59,23 @@ function titleCase(s: string): string {
     .trim();
 }
 
+const STREET_START = /^\d+[a-z]?\s+\S/i;
+const NOT_A_STREET = /\b(suite|ste|unit|room|rm|bldg|building|floor|fl|apt|#)\s*$/i;
+
+// Some records put a clinic or building name on the first address line and
+// the street on the second ("Florida Gulf Coast University" / "10501 Fgcu
+// Blvd S"), or run them together on one line. Geocoding needs the street.
+export function splitStreetLine(line1: string, line2: string): { street: string; placeName?: string } {
+  const one = line1.trim(), two = line2.trim();
+  if (!one || STREET_START.test(one)) return { street: one };
+  if (STREET_START.test(two)) return { street: two, placeName: one };
+  const inline = /\s(\d{2,6}[a-z]?\s+[a-z]\S*.*)$/i.exec(one);
+  if (inline && !NOT_A_STREET.test(one.slice(0, inline.index))) {
+    return { street: inline[1].trim(), placeName: one.slice(0, inline.index).replace(/[\s,-]+$/, "") };
+  }
+  return { street: one };
+}
+
 export function normalizeNpiResult(raw: any): Doctor | null {
   if (!raw || raw.enumeration_type !== "NPI-1") return null;
   const basic = raw.basic;
@@ -79,12 +98,14 @@ export function normalizeNpiResult(raw: any): Doctor | null {
     .replace(/^-+$/, "")
     .trim();
   const baseName = `${titleCase(basic.first_name)} ${titleCase(basic.last_name)}`;
+  const line = splitStreetLine(addr.address_1 ?? "", addr.address_2 ?? "");
 
   return {
     npi: String(raw.number),
     name: credential ? `${baseName}, ${credential}` : baseName,
     specialty: taxonomy.desc || "Provider",
-    address1: titleCase(addr.address_1 ?? ""),
+    address1: titleCase(line.street),
+    ...(line.placeName ? { placeName: titleCase(line.placeName) } : {}),
     city: titleCase(addr.city ?? ""),
     state: addr.state ?? "",
     zip: String(addr.postal_code ?? "").slice(0, 5),
@@ -97,7 +118,7 @@ export function normalizeNpiResult(raw: any): Doctor | null {
     locationSource: "nppes",
     addressKind: addr.address_purpose === "LOCATION" ? "practice" : "mailing",
     sourceUpdatedAt: typeof basic.last_updated === "string" ? basic.last_updated : undefined,
-    practiceLocations: [...addresses.filter(a => a.address_purpose === "LOCATION"), ...(raw.practiceLocations ?? [])].map(a => ({ address1: titleCase(a.address_1 ?? ""), city: titleCase(a.city ?? ""), state: a.state ?? "", zip: String(a.postal_code ?? "").slice(0, 5), phone: a.telephone_number ?? null })),
+    practiceLocations: [...addresses.filter(a => a.address_purpose === "LOCATION"), ...(raw.practiceLocations ?? [])].map(a => ({ address1: titleCase(splitStreetLine(a.address_1 ?? "", a.address_2 ?? "").street), city: titleCase(a.city ?? ""), state: a.state ?? "", zip: String(a.postal_code ?? "").slice(0, 5), phone: a.telephone_number ?? null })),
   };
 }
 

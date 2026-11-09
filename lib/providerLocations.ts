@@ -26,7 +26,8 @@ export async function geocodeProviderLocations<T extends Doctor>(
     .filter(d => d.lat === null && d.addressKind !== "mailing" && d.address1);
   if (!candidates.length) return doctors;
   const points = await addressesToLatLng(
-    candidates.map(d => ({ id: d.npi, street: d.address1, city: d.city, state: d.state, zip: d.zip }))
+    // Census matches "Blvd South" but often not "Blvd. South".
+    candidates.map(d => ({ id: d.npi, street: d.address1.replace(/\./g, ""), city: d.city, state: d.state, zip: d.zip }))
   );
   return doctors.map((doctor) => {
     const coords = doctor.lat === null ? points.get(doctor.npi) : undefined;

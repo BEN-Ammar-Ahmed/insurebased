@@ -18,33 +18,34 @@ test("homepage paints without JavaScript or external API", async ({ browser }) =
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("banner")).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-  // Without JavaScript the search bar is a plain link to the question page.
-  await expect(page.getByRole("link", { name: /Search by ZIP code, address, or insurance/ })).toHaveAttribute("href", "/search");
+  // Without JavaScript the search box still submits to the question page.
+  await expect(page.getByRole("search")).toHaveAttribute("action", "/search");
   await context.close();
 });
-test("search bar opens, validates, closes and searches", async ({ page }) => {
+test("home search box is typed into directly, validates and searches", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/", { waitUntil: "networkidle" });
-  const pill = page.getByRole("link", { name: /Search by ZIP code, address, or insurance/ });
-  await pill.click();
-  const field = page.getByLabel("ZIP code or street address");
+  const field = page.getByLabel(/Search by ZIP code, address, or insurance/);
+  await field.click();
   await expect(field).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(pill).toBeFocused();
-  await pill.click();
-  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page.locator(".search-panel")).toHaveCount(0);
+  await page.keyboard.press("Enter");
   await expect(page.locator(".err-text[role=alert]")).toContainText("Enter a ZIP code or address");
   await field.fill("Chicago IL");
-  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await page.keyboard.press("Enter");
   await expect(page.locator(".err-text[role=alert]")).toContainText("street address with city and state");
   await field.fill("60614");
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
   expect(result.violations).toEqual([]);
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/search\?zip=60614$/);
+  await expect(page.getByRole("heading", { name: /insurance/i })).toBeVisible();
+  await page.goto("/", { waitUntil: "networkidle" });
   await page.route("**/api/doctors/search?**", route => route.fulfill({ json: { center: null, doctors: [], hasMore: false } }));
-  await page.getByLabel(/Skip for now/).check();
+  await page.getByLabel(/Search by ZIP code, address, or insurance/).fill("60614 medicare");
   await page.getByRole("button", { name: "Search", exact: true }).click();
-  await expect(page).toHaveURL(/\/results\?zip=60614&category=none/);
+  await expect(page).toHaveURL(/\/results\?zip=60614&category=medicare/);
   await expect(page.getByRole("heading", { name: "No doctors found here." })).toBeVisible();
   expect(errors).toEqual([]);
 });

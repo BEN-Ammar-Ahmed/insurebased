@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { normalizeNpiResult, searchNpi } from "./npi";
+import { normalizeNpiResult, searchNpi, splitStreetLine } from "./npi";
 import sample from "./fixtures/npi-sample.json";
 
 afterEach(() => {
@@ -152,4 +152,19 @@ it("paginates the combined physician specialties without dropping other specialt
   expect(second.doctors).toHaveLength(15);
   expect(second.hasMore).toBe(false);
   expect(new Set([...first.doctors, ...second.doctors].map(d => d.npi)).size).toBe(65);
+});
+
+describe("splitStreetLine", () => {
+  it("keeps a normal street line", () => {
+    expect(splitStreetLine("10501 FGCU BLVD S", "")).toEqual({ street: "10501 FGCU BLVD S" });
+  });
+  it("uses the second line when the first is a building name", () => {
+    expect(splitStreetLine("FLORIDA GULF COAST UNIVERSITY", "10501 FGCU BLVD. SOUTH")).toEqual({ street: "10501 FGCU BLVD. SOUTH", placeName: "FLORIDA GULF COAST UNIVERSITY" });
+  });
+  it("splits a name and street run together on one line", () => {
+    expect(splitStreetLine("FLORIDA GULF COAST UNIVERSITY 10483 FGCU BLVD SOUTH", "")).toEqual({ street: "10483 FGCU BLVD SOUTH", placeName: "FLORIDA GULF COAST UNIVERSITY" });
+  });
+  it("does not treat a suite number as a street", () => {
+    expect(splitStreetLine("MEDICAL PLAZA SUITE 200 WEST", "")).toEqual({ street: "MEDICAL PLAZA SUITE 200 WEST" });
+  });
 });

@@ -59,6 +59,7 @@ export default function ResultsClient() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [view, setView] = useState("list");
   const [onlyCovered, setOnlyCovered] = useState(false);
+  const [activeNpi, setActiveNpi] = useState<string | null>(null);
   const { open: editing, setOpen: setEditing, close: closeEditing, opener: editOpener, area: editArea } = useSearchDisclosure<HTMLButtonElement>();
   const [area, setArea] = useState<LatLng | null>(null);
   const [pendingCoverage, setPendingCoverage] = useState<Set<string>>(new Set());
@@ -151,6 +152,8 @@ export default function ResultsClient() {
   const coveredCount = (data?.doctors ?? []).filter(d => d.coverage?.status === "covered").length;
   const checkingCount = pendingCoverage.size;
   const unplaced = shown.filter(d => d.lat === null || d.lng === null).length;
+  // Each card's number matches its pin on the map.
+  const numbers = useMemo(() => new Map(shown.map((d, i) => [d.npi, i + 1])), [shown]);
 
   const detail = new URLSearchParams(fetchKey);
   for (const key of PLACE_PARAMS) detail.delete(key);
@@ -221,12 +224,12 @@ export default function ResultsClient() {
       <div className="results-workspace" data-view={view}>
         <section className="results-list" aria-label="Provider results">
           {shown.length === 0 && <p>No loaded doctors match these filters.</p>}
-          {shown.map(d => <DoctorCard key={d.npi} doctor={d} query={detailQuery} pendingText={pendingCoverage.has(d.npi) ? coverageCheckingText(category) : undefined} />)}
+          {shown.map(d => <DoctorCard key={d.npi} doctor={d} query={detailQuery} number={numbers.get(d.npi)} active={activeNpi === d.npi} onActivate={setActiveNpi} pendingText={pendingCoverage.has(d.npi) ? coverageCheckingText(category) : undefined} />)}
           {data.hasMore && <button className="btn-secondary load-more" disabled={loadingMore} onClick={() => void fetchData(data.nextSkip ?? data.doctors.length, area)}>{loadingMore ? "Loading…" : "Load more doctors"}</button>}
         </section>
         <aside className="results-map-panel" aria-label="Provider map">
           {data.center
-            ? <LazyResultsMap center={data.center} doctors={shown} query={detailQuery} onSearchArea={byName ? undefined : (lat, lng) => { const next = { lat, lng }; setArea(next); void fetchData(0, next); }} />
+            ? <LazyResultsMap center={data.center} centerLabel={byName ? undefined : area ? "Center of this map area" : sp.get("zip") ? `Center of ZIP ${sp.get("zip")}` : "Your search location"} doctors={shown} numbers={numbers} activeNpi={activeNpi} query={detailQuery} onSearchArea={byName ? undefined : (lat, lng) => { const next = { lat, lng }; setArea(next); void fetchData(0, next); }} />
             : <div className="card"><h2 className="empty-card-title">Map unavailable</h2><p className="empty-card-body">Addresses are still in the list.</p></div>}
           {data.center && unplaced > 0 && <p className="map-note">{unplaced} of these doctors couldn&apos;t be placed on the map. They&apos;re still in the list.</p>}
         </aside>

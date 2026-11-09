@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
+import SiteAnalytics from "@/components/SiteAnalytics";
 import "./globals.css";
 
 const inter = localFont({ src: [
@@ -48,6 +49,7 @@ export default function RootLayout({
         <SiteHeader />
         <div id="page-content" className="site-content" tabIndex={-1}>{children}</div>
         <SiteFooter />
+        <SiteAnalytics />
       </body>
     </html>
   );
