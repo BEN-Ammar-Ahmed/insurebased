@@ -238,7 +238,7 @@ a, button { -webkit-tap-highlight-color: transparent; }
 .source-links { display: flex; flex-wrap: wrap; gap: 16px; }
 .error-screen { max-width: 640px; align-items: flex-start; gap: 20px; padding-top: clamp(40px, 8vh, 80px); }
 .error-screen p { margin: 0; }
-.error-screen .home-search { max-width: none; }
+.error-screen .home-search { max-width: none; align-items: flex-start; }
 .fld-large { min-height: 56px; }
 
 /* == Search panel == */
@@ -248,10 +248,19 @@ a, button { -webkit-tap-highlight-color: transparent; }
 .text-action-link, .source-links a { color: var(--primary); text-decoration: underline; text-underline-offset: 4px; display: inline-flex; align-items: center; gap: 8px; min-height: 48px; }
 .link-button { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 4px; border: 0; background: none; color: var(--primary); text-decoration: underline; text-underline-offset: 4px; }
 .home-screen { align-items: center; text-align: center; padding-top: clamp(40px, 10vh, 96px); gap: 28px; min-height: 55vh; }
-.home-search { width: 100%; max-width: 640px; text-align: left; }
-.search-pill { display: flex; align-items: center; gap: 14px; min-height: 64px; padding: 14px 26px; border: 1.5px solid var(--primary); border-radius: 999px; background: var(--surface); color: var(--muted); transition: background-color 150ms ease-out; }
+.home-search { width: 100%; max-width: 640px; text-align: left; display: flex; flex-direction: column; align-items: center; }
+.home-search > .search-panel { width: 100%; }
+/* Starts as a round search icon. On hover or keyboard focus it grows into the
+   search bar; a click or tap opens the search panel. */
+.search-pill { display: flex; align-items: center; gap: 14px; width: 68px; height: 68px; padding: 0 20px; overflow: hidden; white-space: nowrap; border: 1.5px solid var(--primary); border-radius: 999px; background: var(--surface); color: var(--muted); transition: width 250ms ease-out, background-color 150ms ease-out; }
 .search-pill svg { color: var(--primary); flex-shrink: 0; }
-.search-pill:hover { background: var(--tint); }
+.search-pill-text { opacity: 0; overflow: hidden; text-overflow: ellipsis; transition: opacity 150ms ease-out; }
+.search-pill:focus-visible { width: 100%; }
+.search-pill:focus-visible .search-pill-text { opacity: 1; }
+@media (hover: hover) {
+  .search-pill:hover { width: 100%; background: var(--tint); }
+  .search-pill:hover .search-pill-text { opacity: 1; }
+}
 .search-panel { display: flex; flex-direction: column; gap: 20px; padding: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-panel); text-align: left; transform-origin: top center; animation: panel-open 200ms ease-out; }
 .search-panel-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .search-panel-title { font-size: 20px; }

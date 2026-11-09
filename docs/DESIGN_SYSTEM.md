@@ -40,8 +40,9 @@ Green appears only on a real, source-backed "covered" result.
 
 ## Motion
 
-The search panel opening is the only animation (`panel-open`, opacity plus
-scale, 200ms). Hovers may change color in 150ms or less. Nothing pulses,
+Two movements only: the home search icon growing into the search bar on hover
+or keyboard focus (width, 250ms), and the search panel opening (`panel-open`,
+opacity plus scale, 200ms). Hovers may change color in 150ms or less. Nothing pulses,
 blinks, shimmers or loops, and loading placeholders are still. The
 `prefers-reduced-motion` kill-switch must keep working.
 `lib/designContract.test.ts` enforces this, along with the tokens and the

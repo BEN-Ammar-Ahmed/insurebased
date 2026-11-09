@@ -3,7 +3,8 @@ import SearchPanel from "./SearchPanel";
 import { SearchIcon } from "./Icons";
 import { useSearchDisclosure } from "./useSearchDisclosure";
 
-// The big rounded search bar. It opens into the search panel in place.
+// A round search icon that grows into the search bar on hover or keyboard
+// focus, and opens the search panel in place on click or tap.
 // Without JavaScript it is a plain link to the question page.
 export default function HomeSearchBar({ titleId = "home-search-title" }: { titleId?: string }) {
   const { open, setOpen, close, opener, area } = useSearchDisclosure<HTMLAnchorElement>();
@@ -13,8 +14,8 @@ export default function HomeSearchBar({ titleId = "home-search-title" }: { title
         <SearchPanel titleId={titleId} onClose={() => close()} />
       ) : (
         <a ref={opener} href="/search" className="search-pill" onClick={(e) => { e.preventDefault(); setOpen(true); }}>
-          <SearchIcon size={22} />
-          <span>Search by ZIP code, address, or insurance…</span>
+          <SearchIcon size={26} />
+          <span className="search-pill-text">Search by ZIP code, address, or insurance…</span>
         </a>
       )}
     </div>

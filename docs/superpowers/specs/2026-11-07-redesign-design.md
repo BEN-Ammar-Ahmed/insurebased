@@ -254,6 +254,9 @@ and the unused parts of `lib/homeContent.ts`. Keep the WebSite JSON-LD.
 - Remove AI-looking patterns: big headers, bold everywhere, blinking,
   floating things, clutter.
 - Error pages: 404, 500, offline, no results.
+- 2026-11-08 change: the home search starts as just a round search icon. On
+  hover (or keyboard focus) it grows into the search bar; click or tap opens
+  the search panel. Phones have no hover, so a tap opens the panel directly.
 
 ## Calls made by Claude (owner can override)
 
