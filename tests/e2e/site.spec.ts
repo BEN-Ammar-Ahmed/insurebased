@@ -70,7 +70,7 @@ test("a chosen ACA plan is carried through every question to results", async ({ 
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Heart doctor (cardiologist)" }).click();
   await page.getByRole("button", { name: "Within 5 miles" }).click();
-  await expect(page).toHaveURL(/category=marketplace&planId=12345IL0010001&planName=Gold+PPO/);
+  await expect(page).toHaveURL(/category=marketplace&planId=12345IL0010001&planName=Gold\+PPO/);
 });
 test("mobile menu supports Escape and footer destinations exist", async ({ page, isMobile }) => {
   await page.goto("/", { waitUntil: "networkidle" });
@@ -124,7 +124,7 @@ test("results, filters, pagination, map and profile actions", async ({ page }) =
     await expect(page.getByRole("region", { name: "Provider results" })).toBeVisible();
   }
   await expect(page.getByRole("link", { name: "Call", exact: true }).first()).toHaveAttribute("href", "tel:3125550100");
-  await expect(page.getByRole("link", { name: "Directions", exact: true }).first()).toHaveAttribute("href", /destination=100%20Test/);
+  await expect(page.getByRole("link", { name: /^Directions in (Google|Apple) Maps$/ }).first()).toHaveAttribute("href", /destination=100%20Test/);
   const resultsAxe = await new AxeBuilder({ page }).exclude(".leaflet-container").withTags(["wcag2a", "wcag2aa"]).analyze();
   expect(resultsAxe.violations).toEqual([]);
   await page.screenshot({ path: "artifacts/results-" + (page.viewportSize()?.width ?? 1280) + ".png", fullPage: true });
